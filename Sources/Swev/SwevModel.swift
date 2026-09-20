@@ -151,6 +151,12 @@ public actor SwevModel {
     }
 
     private func perform(_ request: DecisionRequest) throws -> DecisionResponse {
+        // Actor executors do not guarantee an Objective-C pool per request.
+        // Release Core ML temporaries and evicted model instances promptly.
+        try autoreleasepool { try performPrediction(request) }
+    }
+
+    private func performPrediction(_ request: DecisionRequest) throws -> DecisionResponse {
         try Task.checkCancellation()
         guard request.images.isEmpty || assets.image != nil else { throw SwevError.unsupportedModality }
         guard request.images.count <= 1 else { throw SwevError.invalidRequest("At most one image is supported") }
