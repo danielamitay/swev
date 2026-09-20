@@ -135,3 +135,41 @@ images fail. Preprocessing runs once per request off the main actor; the initial
 combined graph executes for each question. Vision feature caching, audio, and
 video are not implemented. The JSON Lines CLI remains text-only; image input is
 available through the typed Swift API.
+
+## Shared-weight text and image packages
+
+`routed-vision-decision-v1` combines the image contract with an embedded text-only
+graph in `swev.text-model`. Swift selects that graph when the request has no image,
+so text requests do not preprocess pixels or execute the vision encoder. Both
+graphs use the same public API, tokenizer, postprocessing and model identity.
+
+`swev.text-model` contains:
+
+- `specification`: a base64-encoded single-function Core ML model specification,
+  without its own tokenizer metadata, at most 8 MiB decoded.
+- `metadata`: string values for `swev.config`, `swev.preprocessing`, and
+  `swev.signatures`, overriding the shared metadata for the text graph. Its
+  execution profile must be `text-decision-v1`; identity, revision and option
+  capacity must match the root model.
+- `weights`: a mapping from blob references such as
+  `@model_path/weights/weight.bin` to compiled-relative paths such as
+  `weights/weight.bin`. At most 16 files directly inside `weights` are supported.
+
+Both specifications must reference the same shared blob offsets. Exporters must
+remap offsets when deduplicating weights; attaching a specification from an
+unrelated export is invalid. The root graph remains a standard image-capable
+Core ML model. Runtime routing is supplied by Swev.
+
+During loading, Swift builds a temporary text package using the embedded
+specification and hard links to the compiled weight files (copying if linking is
+unavailable), compiles it, and validates its signatures. Temporary source files
+are removed; compiled views are removed when the model is released. The text graph is loaded initially; the image graph loads on the first image
+request and stays cached afterward. This avoids named-function and large-branch
+compiler requirements. Once both routes have been used, runtime memory can
+exceed a single graph.
+No downloads or external model sidecars are required.
+
+The text graph may have a smaller sequence budget than the image graph, bounded
+by the root `maxSequenceTokens`. Each graph applies its own recipe truncation
+rules. Exporters should check text → image → text transitions, probability
+parity, and latency separately. Image features are not cached between questions.

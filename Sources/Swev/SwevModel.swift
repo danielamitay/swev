@@ -1,4 +1,4 @@
-import CoreML
+@preconcurrency import CoreML
 import Foundation
 
 public enum ComputeUnits: Sendable {
@@ -71,30 +71,48 @@ public struct ModelDescriptor: Decodable, Sendable {
 /// A resident Core ML model with serialized, bounded inference and native text preprocessing.
 public actor SwevModel {
     public nonisolated let descriptor: ModelDescriptor
-    private let model: MLModel
+    private var model: MLModel?
+    private let compiledURL: URL
+    private let computeUnits: ComputeUnits
     private let assets: ModelAssets
+    private let textRuntime: (model: MLModel, assets: ModelAssets)?
+    private let ownedTextCompiledURL: URL?
     private let ownedCompiledURL: URL?
     private nonisolated let admission: RequestAdmission
 
-    private init(contentsOf url: URL, configuration: RuntimeConfiguration) throws {
+    private init(contentsOf url: URL, configuration: RuntimeConfiguration) async throws {
         try Task.checkCancellation()
         let needsCompilation = url.pathExtension != "mlmodelc"
-        let compiled = needsCompilation ? try MLModel.compileModel(at: url) : url
+        let compiled = needsCompilation ? try await MLModel.compileModel(at: url) : url
         var loaded = false
+        var textCompiled: URL?
+        defer { if !loaded, let textCompiled { try? FileManager.default.removeItem(at: textCompiled) } }
         defer { if needsCompilation && !loaded { try? FileManager.default.removeItem(at: compiled) } }
         ownedCompiledURL = needsCompilation ? compiled : nil
+        compiledURL = compiled
+        computeUnits = configuration.computeUnits
         try Task.checkCancellation()
         let config = MLModelConfiguration()
         config.computeUnits = configuration.computeUnits.coreML
-        model = try MLModel(contentsOf: compiled, configuration: config)
-        assets = try ModelAssets(model: model)
+        let description = try await MLModelAsset(url: compiled).modelDescription
+        assets = try ModelAssets(description: description)
         descriptor = assets.descriptor
+        if let (textModel, textAssets, textURL) = try BundledTextModel.load(metadata: description.metadata[.creatorDefinedKey] as? [String: String] ?? [:], compiledURL: compiled, configuration: config) {
+            textCompiled = textURL
+            textRuntime = (textModel, textAssets)
+            model = nil
+        } else {
+            textRuntime = nil
+            model = try MLModel(contentsOf: compiled, configuration: config)
+        }
+        ownedTextCompiledURL = textCompiled
         admission = RequestAdmission(limit: configuration.maxPendingRequests)
         try Task.checkCancellation()
         loaded = true
     }
 
     deinit {
+        if let ownedTextCompiledURL { try? FileManager.default.removeItem(at: ownedTextCompiledURL) }
         if let ownedCompiledURL { try? FileManager.default.removeItem(at: ownedCompiledURL) }
     }
 
@@ -106,7 +124,7 @@ public actor SwevModel {
               ["mlpackage", "mlmodel", "mlmodelc"].contains(modelURL.pathExtension),
               FileManager.default.fileExists(atPath: modelURL.path) else { throw SwevError.invalidModelAsset }
         guard (1...64).contains(configuration.maxPendingRequests) else { throw SwevError.invalidRequest("Pending request limit must be 1–64") }
-        let task = Task.detached { try SwevModel(contentsOf: modelURL, configuration: configuration) }
+        let task = Task.detached { try await SwevModel(contentsOf: modelURL, configuration: configuration) }
         return try await withTaskCancellationHandler {
             let model = try await task.value
             try Task.checkCancellation()
@@ -132,6 +150,20 @@ public actor SwevModel {
         guard request.images.count <= 1 else { throw SwevError.invalidRequest("At most one image is supported") }
         guard request.questions.count <= descriptor.capabilities.limits.maxQuestionsPerRequest else { throw SwevError.resourceLimit }
         try request.validate()
+        let model: MLModel
+        let assets: ModelAssets
+        if request.images.isEmpty, let textRuntime {
+            model = textRuntime.model
+            assets = textRuntime.assets
+        } else {
+            if self.model == nil {
+                let config = MLModelConfiguration()
+                config.computeUnits = computeUnits.coreML
+                self.model = try MLModel(contentsOf: compiledURL, configuration: config)
+            }
+            model = self.model!
+            assets = self.assets
+        }
         let imagePixels = try assets.image.map { try $0.pixels(request.images.first) }
         let imageTokens = request.images.isEmpty ? nil : assets.image?.tokenSequence
         var answers: [Answer] = []
@@ -139,7 +171,7 @@ public actor SwevModel {
         for question in request.questions {
             try Task.checkCancellation()
             let encoded = try assets.adapter.encode(state: request.state, question: question, imageTokens: imageTokens)
-            let features = try inputs(encoded, imagePixels: imagePixels)
+            let features = try inputs(encoded, imagePixels: imagePixels, assets: assets)
             try Task.checkCancellation()
             let output = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: features))
             try Task.checkCancellation()
@@ -161,7 +193,7 @@ public actor SwevModel {
                      answers: answers, usage: .init(inputTokens: tokens, outputTokens: 0), metadata: request.metadata)
     }
 
-    private func inputs(_ row: EncodedQuestion, imagePixels: MLMultiArray?) throws -> [String: MLFeatureValue] {
+    private func inputs(_ row: EncodedQuestion, imagePixels: MLMultiArray?, assets: ModelAssets) throws -> [String: MLFeatureValue] {
         let l = assets.adapter.length, k = assets.adapter.optionCapacity
         func integers(_ values: [Int], _ shape: [Int]) throws -> MLFeatureValue {
             let array = try MLMultiArray(shape: shape.map(NSNumber.init), dataType: .int32)

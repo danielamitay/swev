@@ -25,8 +25,12 @@ struct ModelAssets {
     let image: ImagePreprocessing?
     let postprocessing: Postprocessing
 
-    init(model: MLModel) throws {
-        let metadata = model.modelDescription.metadata[.creatorDefinedKey] as? [String: String] ?? [:]
+    init(model: MLModel, metadata supplied: [String: String]? = nil) throws {
+        try self.init(description: model.modelDescription, metadata: supplied)
+    }
+
+    init(description: MLModelDescription, metadata supplied: [String: String]? = nil) throws {
+        let metadata = supplied ?? (description.metadata[.creatorDefinedKey] as? [String: String] ?? [:])
         func read<T: Decodable>(_ key: String, _: T.Type) throws -> T {
             guard let text = metadata[key] else { throw SwevError.missingMetadata(key: key) }
             guard text.utf8.count <= 1_048_576 else { throw SwevError.resourceLimit }
@@ -34,10 +38,12 @@ struct ModelAssets {
             catch { throw SwevError.invalidMetadata }
         }
         descriptor = try ModelDescriptor.read(metadata: metadata)
-        guard ["text-decision-v1", "vision-decision-v1"].contains(descriptor.execution.profile) else { throw SwevError.unsupportedProfile(descriptor.execution.profile) }
+        guard ["text-decision-v1", "vision-decision-v1", "routed-vision-decision-v1"].contains(descriptor.execution.profile) else { throw SwevError.unsupportedProfile(descriptor.execution.profile) }
         let pre = try read("swev.preprocessing", Preprocessing.self)
         guard descriptor.execution.inputAdapter == "text-recipe-v1", ["masked-options", "causal-pointer", "causal-labels"].contains(pre.tensors) else { throw SwevError.unsupportedProfile(descriptor.execution.inputAdapter) }
-        let isVision = descriptor.execution.profile == "vision-decision-v1"
+        let routed = descriptor.execution.profile == "routed-vision-decision-v1"
+        guard routed == (metadata["swev.text-model"] != nil) else { throw SwevError.invalidMetadata }
+        let isVision = descriptor.execution.profile == "vision-decision-v1" || routed
         guard isVision == (pre.image != nil), !isVision || pre.tensors == "causal-labels" else { throw SwevError.invalidMetadata }
         try pre.image?.validate()
         image = pre.image
@@ -69,8 +75,8 @@ struct ModelAssets {
                 return feature(constraint.shape.map(\.intValue), dtype)
             }
         }
-        guard try actual(model.modelDescription.inputDescriptionsByName) == required.inputs,
-              try actual(model.modelDescription.outputDescriptionsByName) == required.outputs else { throw SwevError.signatureMismatch }
+        guard try actual(description.inputDescriptionsByName) == required.inputs,
+              try actual(description.outputDescriptionsByName) == required.outputs else { throw SwevError.signatureMismatch }
         let index = try read("swev.tokenizer.asset-index", [String: Asset].self)
         guard !index.isEmpty, index.count <= 16, let tokenizerAsset = index["tokenizer.json"] else { throw SwevError.unsupportedTokenizer }
         var totalBytes = 0

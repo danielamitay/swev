@@ -70,6 +70,10 @@ func imageModelReferenceParity() async throws {
     let pre = try JSONDecoder().decode(ModelAssets.Preprocessing.self, from: Data(contentsOf: URL(fileURLWithPath: manifest.preprocessing)))
     let config = try #require(pre.image)
     let model = try await SwevModel.load(from: URL(fileURLWithPath: manifest.model), configuration: .init(computeUnits: .cpuOnly))
+    guard case .array(let textRows) = try JSONValue.parse(Data(contentsOf: URL(fileURLWithPath: manifest.textReference))),
+          let firstText = textRows.first else { Issue.record("Invalid text references"); return }
+    let textRequest = try DecisionCodec.decodeRequest(Data(try firstText.member("request")!.jsonString().utf8))
+    let beforeImages = try DecisionCodec.encodeResponse(await model.predict(textRequest))
     let caseURL = URL(fileURLWithPath: manifest.cases)
     let cases = try JSONValue.parse(Data(contentsOf: caseURL))
     guard case .array(let rows) = cases else { Issue.record("Invalid image references"); return }
@@ -104,7 +108,8 @@ func imageModelReferenceParity() async throws {
                         "pixel_error": pixelError, "probabilities": probabilities,
                         "response": try JSONSerialization.jsonObject(with: DecisionCodec.encodeResponse(response))])
     }
-    guard case .array(let textRows) = try JSONValue.parse(Data(contentsOf: URL(fileURLWithPath: manifest.textReference))) else { Issue.record("Invalid text references"); return }
+    let afterImages = try DecisionCodec.encodeResponse(await model.predict(textRequest))
+    #expect(beforeImages == afterImages, "Text predictions must be unchanged after image requests")
     for row in textRows {
         let request = try DecisionCodec.decodeRequest(Data(try row.member("request")!.jsonString().utf8))
         let response = try await model.predict(request)
