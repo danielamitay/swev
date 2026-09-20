@@ -87,6 +87,7 @@ private let hasModels = ProcessInfo.processInfo.environment["SWEV_TEST_MANIFEST"
         if case .array(let items) = references { rows = items }
         else if case .array(let items) = references.member("rows") { rows = items }
         else { Issue.record("Invalid references"); return }
+        guard rows.count == cases.count else { Issue.record("Reference count must match text cases"); return }
         for (i, fixture) in cases.enumerated() {
             let request = try DecisionCodec.decodeRequest(Data(try fixture.member("request")!.jsonString().utf8))
             let response = try await model.predict(request)
@@ -122,8 +123,14 @@ private let hasModels = ProcessInfo.processInfo.environment["SWEV_TEST_MANIFEST"
             #expect(try compiledResponse.noul("q").noul == response.noul("q").noul)
         }
         try FileManager.default.removeItem(at: compiled)
-        await #expect(throws: SwevError.unsupportedModality) {
-            try await model.predict(state: "apple", questions: request.questions, images: [.init(data: Data(), contentType: "image/png")])
+        if model.descriptor.capabilities.supportsImages {
+            await #expect(throws: SwevError.self) {
+                try await model.predict(state: "apple", questions: request.questions, images: [.init(data: Data(), contentType: "image/png")])
+            }
+        } else {
+            await #expect(throws: SwevError.unsupportedModality) {
+                try await model.predict(state: "apple", questions: request.questions, images: [.init(data: Data(), contentType: "image/png")])
+            }
         }
         await #expect(throws: SwevError.contextOverflow) {
             try await model.predict(state: .string(String(repeating: "word ", count: 500)), questions: request.questions)
