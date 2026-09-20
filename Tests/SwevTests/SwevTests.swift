@@ -67,3 +67,11 @@ import Testing
         try await SwevModel.load(from: URL(string: "https://example.com/model.mlpackage")!)
     }
 }
+
+@Test func futureSchemaIsRejectedBeforeDecodingItsBody() {
+    for version in ["1.1", "2.0", "future"] {
+        #expect(throws: SwevError.unsupportedContractVersion(version)) {
+            try ModelDescriptor.read(metadata: ["swev.config": "{\"contractVersion\":\"\(version)\",\"futureField\":true}"])
+        }
+    }
+}

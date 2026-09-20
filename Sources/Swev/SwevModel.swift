@@ -53,12 +53,17 @@ public struct ModelDescriptor: Decodable, Sendable {
 
     static func read(metadata: [String: String]) throws -> ModelDescriptor {
         guard let json = metadata["swev.config"] else { throw SwevError.missingMetadata(key: "swev.config") }
+        guard json.utf8.count <= 1_048_576 else { throw SwevError.resourceLimit }
+        struct Version: Decodable { let contractVersion: String }
+        let version: Version
+        do { version = try JSONDecoder().decode(Version.self, from: Data(json.utf8)) }
+        catch { throw SwevError.invalidMetadata }
+        guard version.contractVersion == "1.0" else {
+            throw SwevError.unsupportedContractVersion(version.contractVersion)
+        }
         let descriptor: ModelDescriptor
         do { descriptor = try JSONDecoder().decode(Self.self, from: Data(json.utf8)) }
         catch { throw SwevError.invalidMetadata }
-        guard descriptor.contractVersion == "1.0" else {
-            throw SwevError.unsupportedContractVersion(descriptor.contractVersion)
-        }
         let limits = descriptor.capabilities.limits
         guard !descriptor.id.isEmpty, !descriptor.modelVersion.isEmpty,
               !descriptor.execution.profile.isEmpty, !descriptor.execution.inputAdapter.isEmpty,

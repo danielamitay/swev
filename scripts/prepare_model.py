@@ -20,6 +20,8 @@ def prepare(source, destination, contract_path):
     if not required.issubset(records):
         raise ValueError("Contract requires config, preprocessing, and postprocessing")
     config = records["swev.config"]
+    if config.get("contractVersion") != "1.0":
+        raise ValueError("Unsupported contractVersion; expected 1.0")
     if config["execution"]["profile"] not in ("text-decision-v1", "vision-decision-v1", "routed-vision-decision-v1") or config["execution"]["inputAdapter"] != "text-recipe-v1":
         raise ValueError("Unsupported execution contract")
     if (config["execution"]["profile"] == "routed-vision-decision-v1") != ("swev.text-model" in records):
