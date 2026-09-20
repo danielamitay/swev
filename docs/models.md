@@ -15,10 +15,10 @@ profile; arbitrary packages are not automatically compatible.
 ## Embedded metadata
 
 - `swev.config`: identity, versions, capabilities, limits, and execution profile.
-- `swev.preprocessing`: `sequenceLength`, `optionCapacity`, `tensors`, and `recipe`.
+- `swev.preprocessing`: `sequenceLength`, optional `sequenceBuckets`, `optionCapacity`, `tensors`, and `recipe`.
 - `swev.postprocessing`: temperatures, optional option-count temperature buckets,
   and confidence methods for choices and scores.
-- `swev.signatures`: tensor names, static shapes, and data types.
+- `swev.signatures`: tensor names, default shapes, optional enumerated shapes, and data types.
 - `swev.tokenizer.asset-index`: UTF-8 tokenizer payload keys, byte counts, and SHA-256 hashes.
 - `swev.provenance`: optional source identity and conversion information.
 

@@ -19,8 +19,8 @@ def load(path):
 
     model = ct.models.MLModel(str(path), skip_model_load=True)
     config = json.loads(model.user_defined_metadata["swev.config"])
-    if config.get("contractVersion") != "1.0":
-        raise ValueError("Unsupported contractVersion; expected 1.0")
+    if config.get("contractVersion") not in ("1.0", "2.0"):
+        raise ValueError("Unsupported contractVersion; expected 1.0 or 2.0")
     return model, config
 
 
@@ -58,7 +58,7 @@ def bundle(text_path, image_path, output):
         or ic["execution"]["profile"] != "vision-decision-v1"
     ):
         raise ValueError("Expected a text profile and an image profile")
-    for key in ("modelVersion", "revision"):
+    for key in ("contractVersion", "modelVersion", "revision"):
         if tc.get(key) != ic.get(key):
             raise ValueError("Source model versions must agree")
     for key in ("maxQuestionsPerRequest", "maxOptionsPerQuestion"):
@@ -67,6 +67,7 @@ def bundle(text_path, image_path, output):
     if (
         tc["capabilities"]["limits"]["maxSequenceTokens"]
         > ic["capabilities"]["limits"]["maxSequenceTokens"]
+        and ic["contractVersion"] != "2.0"
     ):
         raise ValueError("Text sequence capacity must not exceed image capacity")
     for key in set(text.user_defined_metadata) | set(image.user_defined_metadata):
@@ -118,6 +119,7 @@ def bundle(text_path, image_path, output):
         metadata = root.description.metadata.userDefined
         metadata.update(image.user_defined_metadata)
         ic["id"] = tc["id"] = output.stem
+        ic["capabilities"]["limits"]["maxSequenceTokens"] = max(tc["capabilities"]["limits"]["maxSequenceTokens"], ic["capabilities"]["limits"]["maxSequenceTokens"])
         ic["execution"]["profile"] = "routed-vision-decision-v1"
         metadata["swev.config"] = json.dumps(ic)
         overrides = {

@@ -20,7 +20,7 @@ public enum DecisionCodec {
                 guard case .object(let options) = value.member("criteria") else { throw SwevError.invalidRequest("Choice criteria must be an object") }
                 return .choice(id: id, instructions: instructions, options: options.map { .init(id: $0.0, description: $0.1) })
             case "score":
-                guard case .array(let levels) = value.member("criteria"), levels.count <= 10 else { throw SwevError.invalidRequest("Score requires 2–10 levels") }
+                guard case .array(let levels) = value.member("criteria"), levels.count <= 32 else { throw SwevError.invalidRequest("Score requires 2–32 levels") }
                 return .score(id: id, instructions: instructions, levels: levels)
             case "noul":
                 let criteria = value.member("criteria")

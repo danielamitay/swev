@@ -58,7 +58,7 @@ public struct ModelDescriptor: Decodable, Sendable {
         let version: Version
         do { version = try JSONDecoder().decode(Version.self, from: Data(json.utf8)) }
         catch { throw SwevError.invalidMetadata }
-        guard version.contractVersion == "1.0" else {
+        guard ["1.0", "2.0"].contains(version.contractVersion) else {
             throw SwevError.unsupportedContractVersion(version.contractVersion)
         }
         let descriptor: ModelDescriptor
@@ -81,6 +81,7 @@ public actor SwevModel {
     private let computeUnits: ComputeUnits
     private let assets: ModelAssets
     private let textRuntime: (model: MLModel, assets: ModelAssets)?
+    private var alternateRuntime: (text: Bool, length: Int, model: MLModel)?
     private let ownedTextCompiledURL: URL?
     private let ownedCompiledURL: URL?
     private nonisolated let admission: RequestAdmission
@@ -178,7 +179,25 @@ public actor SwevModel {
             let encoded = try assets.adapter.encode(state: request.state, question: question, imageTokens: imageTokens)
             let features = try inputs(encoded, imagePixels: imagePixels, assets: assets)
             try Task.checkCancellation()
-            let output = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: features))
+            let length = assets.sequenceBuckets.first(where: { $0 >= encoded.count })!
+            let selected: MLModel
+            if length == assets.sequenceBuckets[0] {
+                selected = model
+            } else {
+                let text = request.images.isEmpty && textRuntime != nil
+                if alternateRuntime?.text != text || alternateRuntime?.length != length {
+                    // Keep the shortest route resident and at most one longer route.
+                    // Each instance sees only one shape: some Core ML graphs cannot
+                    // safely resize cached intermediate buffers between predictions.
+                    alternateRuntime = nil
+                    let config = MLModelConfiguration()
+                    config.computeUnits = computeUnits.coreML
+                    let url = text ? ownedTextCompiledURL! : compiledURL
+                    alternateRuntime = (text, length, try MLModel(contentsOf: url, configuration: config))
+                }
+                selected = alternateRuntime!.model
+            }
+            let output = try selected.prediction(from: MLDictionaryFeatureProvider(dictionary: features))
             try Task.checkCancellation()
             guard let array = output.featureValue(for: "option_logits")?.multiArrayValue,
                   array.count == assets.adapter.optionCapacity else { throw SwevError.inferenceFailed }
@@ -199,7 +218,7 @@ public actor SwevModel {
     }
 
     private func inputs(_ row: EncodedQuestion, imagePixels: MLMultiArray?, assets: ModelAssets) throws -> [String: MLFeatureValue] {
-        let l = assets.adapter.length, k = assets.adapter.optionCapacity
+        let l = assets.sequenceBuckets.first(where: { $0 >= row.count })!, k = assets.adapter.optionCapacity
         func integers(_ values: [Int], _ shape: [Int]) throws -> MLFeatureValue {
             let array = try MLMultiArray(shape: shape.map(NSNumber.init), dataType: .int32)
             for (i, value) in values.enumerated() { array[i] = NSNumber(value: value) }
@@ -217,9 +236,10 @@ public actor SwevModel {
             result["position_ids"] = try integers(Array(0..<row.count) + Array(repeating: 0, count: l - row.count), [1, l])
             result["decision_indices"] = try integers([row.count - 1], [1])
             let mask = try MLMultiArray(shape: [1, 1, NSNumber(value: l), NSNumber(value: l)], dataType: .float32)
+            let values = mask.dataPointer.bindMemory(to: Float.self, capacity: l * l)
             for query in 0..<l {
                 for key in 0..<l {
-                    mask[query * l + key] = NSNumber(value: (key <= query && key < row.count) || query == key ? Float(0) : Float(-10000))
+                    values[query * l + key] = (key <= query && key < row.count) || query == key ? 0 : -10000
                 }
             }
             result["attention_bias"] = MLFeatureValue(multiArray: mask)

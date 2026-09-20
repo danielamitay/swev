@@ -5,6 +5,7 @@ import Foundation
 struct ModelAssets {
     struct Preprocessing: Decodable {
         let sequenceLength: Int
+        let sequenceBuckets: [Int]?
         let optionCapacity: Int
         let recipe: TextRecipe
         let tensors: String
@@ -17,11 +18,12 @@ struct ModelAssets {
         let scoreConfidence: ConfidenceMethod
     }
     struct Asset: Decodable { let key: String; let bytes: Int; let sha256: String }
-    struct Feature: Codable, Equatable { let shape: [Int]; let dtype: String }
+    struct Feature: Codable, Equatable { let shape: [Int]; let dtype: String; var enumeratedShapes: [[Int]]? = nil }
     struct Signatures: Codable, Equatable { let inputs: [String: Feature]; let outputs: [String: Feature] }
     let descriptor: ModelDescriptor
     let adapter: TextAdapter
     let tensors: String
+    let sequenceBuckets: [Int]
     let image: ImagePreprocessing?
     let postprocessing: Postprocessing
 
@@ -49,11 +51,16 @@ struct ModelAssets {
         image = pre.image
         let limits = descriptor.capabilities.limits
         guard descriptor.capabilities.modalities == (isVision ? ["text", "image"] : ["text"]), Set(descriptor.capabilities.questionTypes) == Set(QuestionType.allCases),
-              limits.maxQuestionsPerRequest <= 64, (8...2048).contains(pre.sequenceLength), (2...32).contains(pre.optionCapacity),
-              pre.sequenceLength == limits.maxSequenceTokens, pre.optionCapacity == limits.maxOptionsPerQuestion else { throw SwevError.invalidMetadata }
+              limits.maxQuestionsPerRequest <= 64, (8...(descriptor.contractVersion == "2.0" ? 4096 : 2048)).contains(pre.sequenceLength), (2...32).contains(pre.optionCapacity),
+              (pre.sequenceLength == limits.maxSequenceTokens || (routed && descriptor.contractVersion == "2.0" && pre.sequenceLength < limits.maxSequenceTokens && limits.maxSequenceTokens <= 4096)), pre.optionCapacity == limits.maxOptionsPerQuestion else { throw SwevError.invalidMetadata }
+        let buckets = pre.sequenceBuckets ?? [pre.sequenceLength]
+        guard !buckets.isEmpty, buckets.count <= 16, buckets == Array(Set(buckets)).sorted(),
+              buckets.allSatisfy({ (8...pre.sequenceLength).contains($0) }), buckets.last == pre.sequenceLength,
+              pre.sequenceBuckets == nil || descriptor.contractVersion == "2.0" else { throw SwevError.invalidMetadata }
+        sequenceBuckets = buckets
         let signatures = try read("swev.signatures", Signatures.self)
         func feature(_ shape: [Int], _ dtype: String = "int32") -> Feature { .init(shape: shape, dtype: dtype) }
-        let l = pre.sequenceLength, k = pre.optionCapacity
+        let l = buckets[0], k = pre.optionCapacity
         var expected = ["input_ids": feature([1, l]), "option_indices": feature([1, k])]
         if pre.tensors == "masked-options" {
             expected["token_mask"] = feature([1, l]); expected["option_mask"] = feature([1, k]); expected["question_type"] = feature([1])
@@ -61,6 +68,11 @@ struct ModelAssets {
             expected["position_ids"] = feature([1, l]); expected["decision_indices"] = feature([1]); expected["attention_bias"] = feature([1, 1, l, l], "float32")
         }
         if let image = pre.image { expected["image_pixels"] = feature([1, image.height, image.width, 3], "float32") }
+        if buckets.count > 1 {
+            for name in ["input_ids", "position_ids", "token_mask", "attention_bias"] where expected[name] != nil {
+                expected[name]!.enumeratedShapes = buckets.map { name == "attention_bias" ? [1, 1, $0, $0] : [1, $0] }
+            }
+        }
         let required = Signatures(inputs: expected, outputs: ["option_logits": feature([1, k], "float32")])
         guard signatures == required else { throw SwevError.signatureMismatch }
         func actual(_ features: [String: MLFeatureDescription]) throws -> [String: Feature] {
@@ -72,7 +84,10 @@ struct ModelAssets {
                 case .float32: dtype = "float32"
                 default: throw SwevError.signatureMismatch
                 }
-                return feature(constraint.shape.map(\.intValue), dtype)
+                var result = feature(constraint.shape.map(\.intValue), dtype)
+                let shapes = constraint.shapeConstraint.enumeratedShapes.map { $0.map(\.intValue) }
+                if shapes.count > 1 { result.enumeratedShapes = shapes }
+                return result
             }
         }
         guard try actual(description.inputDescriptionsByName) == required.inputs,
@@ -87,7 +102,7 @@ struct ModelAssets {
                   SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == asset.sha256 else { throw SwevError.metadataIntegrityFailure }
         }
         let tokenizer = try BPETokenizer(data: Data(metadata[tokenizerAsset.key]!.utf8))
-        adapter = try TextAdapter(tokenizer: tokenizer, length: l, optionCapacity: k, recipe: pre.recipe)
+        adapter = try TextAdapter(tokenizer: tokenizer, length: pre.sequenceLength, optionCapacity: k, recipe: pre.recipe)
         guard (pre.tensors == "causal-labels") == (pre.recipe.candidateTokens != nil) else { throw SwevError.invalidMetadata }
         guard adapter.imageSlots == (isVision ? 1 : 0) else { throw SwevError.invalidMetadata }
         if let image = pre.image {

@@ -20,7 +20,7 @@ class ConversionTests(unittest.TestCase):
         import coremltools as ct
         import numpy as np
         from coremltools.converters.mil import Builder as mb
-        from coremltools.converters.mil.mil import types
+        from coremltools.converters.mil.mil import types, get_new_symbol
         from coremltools.proto import Model_pb2
         from tokenizers import (
             AddedToken,
@@ -47,17 +47,18 @@ class ConversionTests(unittest.TestCase):
         weights = np.random.default_rng(0).normal(size=(64, 64)).astype(np.float32)
 
         def make(path, image):
+            length = 512 if image else get_new_symbol()
             specs = [
-                mb.TensorSpec((1, 512), types.int32),
-                mb.TensorSpec((1, 10), types.int32),
-                mb.TensorSpec((1, 512), types.int32),
+                mb.TensorSpec((1, length), types.int32),
+                mb.TensorSpec((1, 16), types.int32),
+                mb.TensorSpec((1, length), types.int32),
                 mb.TensorSpec((1,), types.int32),
-                mb.TensorSpec((1, 1, 512, 512), types.fp32),
+                mb.TensorSpec((1, 1, length, length), types.fp32),
             ]
 
             def result(input_ids, image_pixels=None):
                 ids = mb.cast(x=input_ids, dtype="fp32")
-                value = mb.matmul(x=mb.reshape(x=ids, shape=(8, 64)), y=weights)
+                value = mb.matmul(x=mb.slice_by_size(x=ids, begin=[0, 0], size=[1, 64]), y=weights)
                 value = mb.reduce_mean(x=value, axes=[0, 1], keep_dims=True)
                 if image_pixels is not None:
                     value = mb.add(
@@ -66,7 +67,7 @@ class ConversionTests(unittest.TestCase):
                             x=image_pixels, axes=[0, 1, 2, 3], keep_dims=False
                         ),
                     )
-                return mb.tile(x=value, reps=[1, 10], name="option_logits")
+                return mb.tile(x=value, reps=[1, 16], name="option_logits")
 
             if image:
 
@@ -95,8 +96,15 @@ class ConversionTests(unittest.TestCase):
                 ):
                     return result(input_ids)
 
+            inputs = None
+            if not image:
+                inputs = [ct.TensorType(name=name, shape=ct.EnumeratedShapes(
+                    shapes=[(1,1,n,n) if name == "attention_bias" else (1,n) for n in (128,512,4096)],
+                    default=(1,1,128,128) if name == "attention_bias" else (1,128)))
+                    for name in ("input_ids", "position_ids", "attention_bias")]
             model = ct.convert(
                 program,
+                inputs=inputs,
                 convert_to="mlprogram",
                 minimum_deployment_target=ct.target.iOS18,
                 compute_precision=ct.precision.FLOAT32,
@@ -105,7 +113,7 @@ class ConversionTests(unittest.TestCase):
             literal = lambda value: {"op": "literal", "value": value}
             recipe = {
                 "tokenization": "joined",
-                "candidateTokens": list("ABCDEFGHIJ"),
+                "candidateTokens": list("ABCDEFGHIJKLMNOP"),
                 "padToken": "[PAD]",
                 "state": {
                     "op": "format",
@@ -127,11 +135,13 @@ class ConversionTests(unittest.TestCase):
             if image:
                 recipe["segments"].insert(0, {"kind": "image"})
             pre = {
-                "sequenceLength": 512,
-                "optionCapacity": 10,
+                "sequenceLength": 512 if image else 4096,
+                "optionCapacity": 16,
                 "tensors": "causal-labels",
                 "recipe": recipe,
             }
+            if not image:
+                pre["sequenceBuckets"] = [128,512,4096]
             if image:
                 pre["image"] = {
                     "width": 2,
@@ -142,7 +152,7 @@ class ConversionTests(unittest.TestCase):
                 }
             records = {
                 "swev.config": {
-                    "contractVersion": "1.0",
+                    "contractVersion": "2.0",
                     "id": "test",
                     "modelVersion": "1",
                     "architecture": "test",
@@ -157,8 +167,8 @@ class ConversionTests(unittest.TestCase):
                         "questionTypes": ["choice", "score", "noul"],
                         "limits": {
                             "maxQuestionsPerRequest": 64,
-                            "maxOptionsPerQuestion": 10,
-                            "maxSequenceTokens": 512,
+                            "maxOptionsPerQuestion": 16,
+                            "maxSequenceTokens": 512 if image else 4096,
                         },
                     },
                 },
@@ -172,7 +182,7 @@ class ConversionTests(unittest.TestCase):
                 "swev.tokenizer.tokenizer.json": tokenizer.to_str(),
             }
             annotate(model, records).save(str(path))
-            records["swev.config"]["contractVersion"] = "2.0"
+            records["swev.config"]["contractVersion"] = "99.0"
             with self.assertRaisesRegex(ValueError, "contractVersion"):
                 annotate(model, records)
 
@@ -207,7 +217,7 @@ class ConversionTests(unittest.TestCase):
                 sum(p.stat().st_size for p in compressed.rglob("*.bin")),
                 sum(p.stat().st_size for p in output.rglob("*.bin")),
             )
-            # Exercise smaller requests and all ten candidate slots through the Swift loader.
+            # Exercise smaller requests and all sixteen candidate slots through the Swift loader.
             import subprocess
 
             cases = json.loads(
@@ -216,12 +226,12 @@ class ConversionTests(unittest.TestCase):
                 ).read_text()
             )
             for kind, criteria in (
-                ("choice", {letter: None for letter in "ABCDEFGHIJ"}),
-                ("score", list("0123456789")),
+                ("choice", {letter: None for letter in "ABCDEFGHIJKLMNOP"}),
+                ("score", list(map(str, range(16)))),
             ):
                 cases.append({
                     "request": {
-                        "state": "J" if kind == "choice" else "9",
+                        "state": "P" if kind == "choice" else "15",
                         "questions": {
                             "decision": {
                                 "type": kind,
@@ -231,6 +241,10 @@ class ConversionTests(unittest.TestCase):
                         },
                     }
                 })
+            # Exercise different buckets and return to the resident short route.
+            for repetitions in (150, 700, 1):
+                cases.append({"request": {"state": "x " * repetitions, "questions": {
+                    "q": {"type": "noul", "instructions": "Is this text?"}}}})
             case_path = root / "cases.json"
             case_path.write_text(json.dumps(cases))
             references = []

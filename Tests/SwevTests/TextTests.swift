@@ -76,7 +76,7 @@ private let hasModels = ProcessInfo.processInfo.environment["SWEV_TEST_MANIFEST"
             #expect(row.options == ints("options"))
         }
         let question = Question.noul(id: "ignored", instructions: "Is this edible?")
-        #expect(throws: SwevError.contextOverflow) { try adapter.encode(state: .string(String(repeating: "apple ", count: 200)), question: question) }
+        #expect(throws: SwevError.contextOverflow) { try adapter.encode(state: .string(String(repeating: "x ", count: adapter.length + 1)), question: question) }
     }
 }
 
@@ -137,7 +137,7 @@ private let hasModels = ProcessInfo.processInfo.environment["SWEV_TEST_MANIFEST"
             }
         }
         await #expect(throws: SwevError.contextOverflow) {
-            try await model.predict(state: .string(String(repeating: "word ", count: 500)), questions: request.questions)
+            try await model.predict(state: .string(String(repeating: "x ", count: model.descriptor.capabilities.limits.maxSequenceTokens + 1)), questions: request.questions)
         }
         let cancelled = Task {
             withUnsafeCurrentTask { $0?.cancel() }
@@ -277,4 +277,10 @@ private func syntheticTokenizer() -> [String: Any] {
     }
     let long = String(repeating: "ab", count: 8192)
     #expect(try tokenizer.encode(long) == Array(repeating: vocabulary["abab"]!, count: 4096))
+}
+
+@Test func codecSupportsSixteenScoreLevels() throws {
+    let json = "{\"state\":\"test\",\"questions\":{\"q\":{\"type\":\"score\",\"instructions\":\"Rate\",\"criteria\":[" + (0..<16).map { "\"level \($0)\"" }.joined(separator: ",") + "]}}}"
+    let request = try DecisionCodec.decodeRequest(Data(json.utf8))
+    #expect(request.questions[0].optionCount == 16)
 }

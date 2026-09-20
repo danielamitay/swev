@@ -50,7 +50,8 @@ struct BundledTextModel: Decodable {
         metadata.removeValue(forKey: "swev.text-model")
         let assets = try ModelAssets(model: textModel, metadata: metadata)
         let root = try ModelDescriptor.read(metadata: shared)
-        guard assets.descriptor.execution.profile == "text-decision-v1",
+        guard assets.descriptor.contractVersion == root.contractVersion,
+              assets.descriptor.execution.profile == "text-decision-v1",
               assets.descriptor.id == root.id,
               assets.descriptor.modelVersion == root.modelVersion,
               assets.descriptor.revision == root.revision,

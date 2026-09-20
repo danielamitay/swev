@@ -16,8 +16,8 @@ def annotate(model, records):
     if not required.issubset(records):
         raise ValueError("Contract requires config, preprocessing, and postprocessing")
     config = records["swev.config"]
-    if config.get("contractVersion") != "1.0":
-        raise ValueError("Unsupported contractVersion; expected 1.0")
+    if config.get("contractVersion") not in ("1.0", "2.0"):
+        raise ValueError("Unsupported contractVersion; expected 1.0 or 2.0")
     if (
         config["execution"]["profile"]
         not in ("text-decision-v1", "vision-decision-v1", "routed-vision-decision-v1")
@@ -46,6 +46,9 @@ def annotate(model, records):
                 "shape": list(array.shape),
                 "dtype": dtype_names[array.dataType],
             }
+            shapes = [list(shape.shape) for shape in array.enumeratedShapes.shapes]
+            if len(shapes) > 1:
+                result[value.name]["enumeratedShapes"] = shapes
         return result
 
     spec = model.get_spec()
@@ -55,8 +58,14 @@ def annotate(model, records):
     }
     pre = records["swev.preprocessing"]
     length, options = pre["sequenceLength"], pre["optionCapacity"]
-    if not 8 <= length <= 2048 or not 2 <= options <= 32:
+    if not 8 <= length <= (4096 if config["contractVersion"] == "2.0" else 2048) or not 2 <= options <= 32:
         raise ValueError("Unsupported export capacity")
+    buckets = pre.get("sequenceBuckets", [length])
+    if (not buckets or len(buckets) > 16 or buckets != sorted(set(buckets))
+        or buckets[-1] != length or any(not 8 <= x <= length for x in buckets)
+        or ("sequenceBuckets" in pre and config["contractVersion"] != "2.0")):
+        raise ValueError("Invalid sequence buckets")
+    length = buckets[0]
     integer = lambda shape: {"shape": shape, "dtype": "int32"}
     expected = {
         "input_ids": integer([1, length]),
@@ -85,6 +94,12 @@ def annotate(model, records):
             "shape": [1, image["height"], image["width"], 3],
             "dtype": "float32",
         }
+    if len(buckets) > 1:
+        for key in ("input_ids", "position_ids", "token_mask", "attention_bias"):
+            if key in expected:
+                expected[key]["enumeratedShapes"] = [
+                    [1, 1, n, n] if key == "attention_bias" else [1, n] for n in buckets
+                ]
     if signatures != {
         "inputs": expected,
         "outputs": {"option_logits": {"shape": [1, options], "dtype": "float32"}},
