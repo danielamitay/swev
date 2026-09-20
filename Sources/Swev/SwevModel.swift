@@ -16,9 +16,11 @@ public enum ComputeUnits: Sendable {
 
 public struct RuntimeConfiguration: Sendable {
     public var computeUnits: ComputeUnits
+    public var maxPendingRequests: Int
 
-    public init(computeUnits: ComputeUnits = .all) {
+    public init(computeUnits: ComputeUnits = .all, maxPendingRequests: Int = 8) {
         self.computeUnits = computeUnits
+        self.maxPendingRequests = maxPendingRequests
     }
 }
 
@@ -38,6 +40,7 @@ public struct ModelCapabilities: Decodable, Sendable {
 public struct ModelDescriptor: Decodable, Sendable {
     public let contractVersion: String
     public let modelVersion: String
+    public let revision: String?
     public let id: String
     public let architecture: String
     public let capabilities: ModelCapabilities
@@ -65,46 +68,139 @@ public struct ModelDescriptor: Decodable, Sendable {
     }
 }
 
-/// API scaffold. No executable model adapter is registered yet.
+/// A resident Core ML model with serialized, bounded inference and native text preprocessing.
 public actor SwevModel {
     public nonisolated let descriptor: ModelDescriptor
+    private let model: MLModel
+    private let assets: ModelAssets
+    private let ownedCompiledURL: URL?
+    private nonisolated let admission: RequestAdmission
 
-    private init(descriptor: ModelDescriptor) { self.descriptor = descriptor }
+    private init(contentsOf url: URL, configuration: RuntimeConfiguration) throws {
+        try Task.checkCancellation()
+        let needsCompilation = url.pathExtension != "mlmodelc"
+        let compiled = needsCompilation ? try MLModel.compileModel(at: url) : url
+        var loaded = false
+        defer { if needsCompilation && !loaded { try? FileManager.default.removeItem(at: compiled) } }
+        ownedCompiledURL = needsCompilation ? compiled : nil
+        try Task.checkCancellation()
+        let config = MLModelConfiguration()
+        config.computeUnits = configuration.computeUnits.coreML
+        model = try MLModel(contentsOf: compiled, configuration: config)
+        assets = try ModelAssets(model: model)
+        descriptor = assets.descriptor
+        admission = RequestAdmission(limit: configuration.maxPendingRequests)
+        try Task.checkCancellation()
+        loaded = true
+    }
 
-    /// Compiles standard assets and reads embedded configuration. Currently throws
-    /// `unsupportedProfile` after inspection: text tokenization and inference are not wired.
+    deinit {
+        if let ownedCompiledURL { try? FileManager.default.removeItem(at: ownedCompiledURL) }
+    }
+
+    /// Loads one self-contained standard asset. Source packages are compiled off the main actor.
+    /// Compiled assets can be supplied directly; no sidecars, downloads, or persistent compile cache.
     public static func load(from modelURL: URL, configuration: RuntimeConfiguration = .init()) async throws -> SwevModel {
         try Task.checkCancellation()
         guard modelURL.isFileURL,
               ["mlpackage", "mlmodel", "mlmodelc"].contains(modelURL.pathExtension),
-              FileManager.default.fileExists(atPath: modelURL.path) else {
-            throw SwevError.invalidModelAsset
-        }
-        let descriptor = try await Task.detached {
-            let needsCompilation = modelURL.pathExtension != "mlmodelc"
-            let compiledURL = needsCompilation ? try MLModel.compileModel(at: modelURL) : modelURL
-            defer {
-                if needsCompilation { try? FileManager.default.removeItem(at: compiledURL) }
-            }
-            let config = MLModelConfiguration()
-            config.computeUnits = configuration.computeUnits.coreML
-            let model = try MLModel(contentsOf: compiledURL, configuration: config)
-            let metadata = model.modelDescription.metadata[.creatorDefinedKey] as? [String: String] ?? [:]
-            return try ModelDescriptor.read(metadata: metadata)
-        }.value
-        try Task.checkCancellation()
-        throw SwevError.unsupportedProfile(descriptor.execution.profile)
+              FileManager.default.fileExists(atPath: modelURL.path) else { throw SwevError.invalidModelAsset }
+        guard (1...64).contains(configuration.maxPendingRequests) else { throw SwevError.invalidRequest("Pending request limit must be 1–64") }
+        let task = Task.detached { try SwevModel(contentsOf: modelURL, configuration: configuration) }
+        return try await withTaskCancellationHandler {
+            let model = try await task.value
+            try Task.checkCancellation()
+            return model
+        } onCancel: { task.cancel() }
     }
 
-    public func predict(state: JSONValue, questions: [Question], images: [ImageInput] = [],
-                        metadata: RequestMetadata? = nil) async throws -> DecisionResponse {
+    public nonisolated func predict(state: JSONValue, questions: [Question], images: [ImageInput] = [],
+                                    metadata: RequestMetadata? = nil) async throws -> DecisionResponse {
         try await predict(.init(state: state, questions: questions, images: images, metadata: metadata))
     }
 
-    public func predict(_ request: DecisionRequest) async throws -> DecisionResponse {
+    public nonisolated func predict(_ request: DecisionRequest) async throws -> DecisionResponse {
+        try Task.checkCancellation()
+        try admission.acquire()
+        defer { admission.release() }
+        return try await perform(request)
+    }
+
+    private func perform(_ request: DecisionRequest) throws -> DecisionResponse {
         try Task.checkCancellation()
         guard request.images.isEmpty else { throw SwevError.unsupportedModality }
+        guard request.questions.count <= descriptor.capabilities.limits.maxQuestionsPerRequest else { throw SwevError.resourceLimit }
         try request.validate()
-        throw SwevError.unsupportedProfile(descriptor.execution.profile)
+        var answers: [Answer] = []
+        var tokens = 0
+        for question in request.questions {
+            try Task.checkCancellation()
+            let encoded = try assets.adapter.encode(state: request.state, question: question)
+            let features = try inputs(encoded)
+            try Task.checkCancellation()
+            let output = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: features))
+            try Task.checkCancellation()
+            guard let array = output.featureValue(for: "option_logits")?.multiArrayValue,
+                  array.count == assets.adapter.optionCapacity else { throw SwevError.inferenceFailed }
+            let logits = (0..<question.optionCount).map { array[$0].doubleValue }
+            let method = question.type == .score ? assets.postprocessing.scoreConfidence : assets.postprocessing.choiceConfidence
+            var answer = try Postprocessing.answer(question: question, logits: logits, temperature: assets.temperature(question), method: method)
+            if assets.adapter.recipe.scoreLegend == "indented", case .score(let id, let score) = answer,
+               case .score(_, _, let levels) = question {
+                answer = .score(id: id, .init(score: score.score, modalLevel: score.modalLevel, probabilities: score.probabilities,
+                    legend: try levels.map { try $0.indentedText() }, confidence: score.confidence))
+            }
+            answers.append(answer)
+            tokens += encoded.count
+        }
+        try Task.checkCancellation()
+        return .init(modelID: descriptor.id, modelRevision: descriptor.revision ?? descriptor.modelVersion,
+                     answers: answers, usage: .init(inputTokens: tokens, outputTokens: 0), metadata: request.metadata)
+    }
+
+    private func inputs(_ row: EncodedQuestion) throws -> [String: MLFeatureValue] {
+        let l = assets.adapter.length, k = assets.adapter.optionCapacity
+        func integers(_ values: [Int], _ shape: [Int]) throws -> MLFeatureValue {
+            let array = try MLMultiArray(shape: shape.map(NSNumber.init), dataType: .int32)
+            for (i, value) in values.enumerated() { array[i] = NSNumber(value: value) }
+            return MLFeatureValue(multiArray: array)
+        }
+        var result = [
+            "input_ids": try integers(row.ids + Array(repeating: assets.adapter.padID, count: l - row.count), [1, l]),
+            "option_indices": try integers(row.options + Array(repeating: 0, count: k - row.options.count), [1, k]),
+        ]
+        if assets.tensors == "masked-options" {
+            result["token_mask"] = try integers(Array(repeating: 1, count: row.count) + Array(repeating: 0, count: l - row.count), [1, l])
+            result["option_mask"] = try integers(Array(repeating: 1, count: row.options.count) + Array(repeating: 0, count: k - row.options.count), [1, k])
+            result["question_type"] = try integers([row.type], [1])
+        } else {
+            result["position_ids"] = try integers(Array(0..<row.count) + Array(repeating: 0, count: l - row.count), [1, l])
+            result["decision_indices"] = try integers([row.count - 1], [1])
+            let mask = try MLMultiArray(shape: [1, 1, NSNumber(value: l), NSNumber(value: l)], dataType: .float32)
+            for query in 0..<l {
+                for key in 0..<l {
+                    mask[query * l + key] = NSNumber(value: (key <= query && key < row.count) || query == key ? Float(0) : Float(-10000))
+                }
+            }
+            result["attention_bias"] = MLFeatureValue(multiArray: mask)
+        }
+        return result
+    }
+}
+
+/// Lock-protected admission happens before the actor hop, so its mailbox stays bounded.
+final class RequestAdmission: @unchecked Sendable {
+    private let lock = NSLock()
+    private let limit: Int
+    private var pending = 0
+    init(limit: Int) { self.limit = limit }
+    func acquire() throws {
+        lock.lock(); defer { lock.unlock() }
+        guard pending < limit else { throw SwevError.queueFull }
+        pending += 1
+    }
+    func release() {
+        lock.lock(); defer { lock.unlock() }
+        pending -= 1
     }
 }

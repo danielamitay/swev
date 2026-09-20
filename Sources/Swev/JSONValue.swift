@@ -15,10 +15,14 @@ public indirect enum JSONValue: Sendable, ExpressibleByStringLiteral {
     public func jsonString() throws -> String {
         switch self {
         case .string(let value):
-            return String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.withoutEscapingSlashes]
+            return String(decoding: try encoder.encode(value), as: UTF8.self)
         case .number(let value):
             guard value.isFinite else { throw SwevError.invalidRequest("Nonfinite JSON number") }
-            return String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.withoutEscapingSlashes]
+            return String(decoding: try encoder.encode(value), as: UTF8.self)
         case .bool(let value): return value ? "true" : "false"
         case .null: return "null"
         case .array(let values): return "[" + (try values.map { try $0.jsonString() }.joined(separator: ",")) + "]"

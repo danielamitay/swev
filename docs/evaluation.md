@@ -12,7 +12,7 @@ from stdin and writes one response per request to stdout, in order. Send logs
 to stderr. The command can include arguments, for example
 `--driver python3 /path/to/driver.py`. No network or model downloads are performed
 by the harness. The driver is responsible for its own inference implementation.
-The Swift package does not yet include an executable model driver.
+The package includes a native Swift driver; see below.
 
 Requests contain `state` and a `questions` object. Responses identify `model`
 and contain an `answers` object with matching question IDs. Each answer has
@@ -43,3 +43,40 @@ Run harness tests with `python3 -m unittest discover -s scripts -p 'test_*.py'`.
 Model conversion parity and runtime performance require separate evaluation.
 Keep weights, conversion environments, and generated reports under `.local/`
 or the ignored `models/` and `reports/` directories.
+
+## Native Swift driver
+
+Build the actual runtime driver and run the same labeled cases:
+
+```sh
+swift build -c release
+python3 scripts/evaluate.py --model /path/to/prepared.mlpackage \
+  --driver .build/release/swev
+```
+
+The driver uses CPU-only Core ML and native tokenization. It accepts a text-only
+decision API subset, preserves object order, rejects duplicate keys, and checks any
+supplied model ID. Score wire requests allow 2–10 levels, further limited by the
+asset. Images and remote URLs are not fetched. Hosted API parity, extended wire
+metadata, and legacy rounded answers are outside this codec's scope.
+
+## Opt-in model integration tests
+
+Set `SWEV_TEST_MANIFEST` to a local JSON file:
+
+```json
+{
+  "tokenizers": [{"path": "/path/to/tokenizer.json", "reference": "/path/to/token-tests.json"}],
+  "adapters": [{"tokenizer": "/path/to/tokenizer.json", "recipe": "/path/to/recipe.json", "reference": "/path/to/adapter-tests.json"}],
+  "models": [{"path": "/path/to/model.mlpackage", "reference": "/path/to/probabilities.json"}]
+}
+```
+
+Run `SWEV_TEST_MANIFEST=/path/to/manifest.json swift test`. All source-model fixtures
+are external to the repository. Tokenizer references contain `text` and `ids`;
+adapter references contain `request`, `ids`, and `options`. Model references are an
+array containing `probabilities` per row, in the order of the 17 text cases.
+Probabilities must already include the source model's calibration.
+
+Ordinary `swift test` skips the three model-dependent tests and uses synthetic
+unit fixtures. Full release parity needs a larger, independently frozen suite.

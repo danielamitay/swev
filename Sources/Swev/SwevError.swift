@@ -1,4 +1,12 @@
 public enum SwevError: Error, Sendable, Equatable {
+    case unsupportedTokenizer
+    case queueFull
+    case resourceLimit
+    case contextOverflow
+    case tooManyOptions(limit: Int)
+    case signatureMismatch
+    case metadataIntegrityFailure
+    case inferenceFailed
     case invalidModelAsset
     case missingMetadata(key: String)
     case invalidMetadata

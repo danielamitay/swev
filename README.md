@@ -1,6 +1,6 @@
 # Swev
 
-Swev is a Swift package for local, typed decisions with Core ML. Its goal is to turn text or structured state and runtime-defined questions into choices, ordinal scores, and probabilities.
+Swev is a Swift/Core ML package for local, typed decisions, intended to mirror the API functionality recently popularized by Jev. Give it text or structured state and runtime-defined questions; receive choices, ordinal scores, and probabilities.
 
 ```swift
 import Swev
@@ -13,8 +13,8 @@ let response = try await model.predict(
 print(try response.noul("edible").noul)
 ```
 
-**Status:** API scaffold. Request validation and scoring semantics are tested; model adapters and tokenization are not implemented. `load` currently reports an unsupported profile after reading model metadata. The example describes the intended API, not working inference.
+Compatible model packages bundle their tokenizer, text formatting recipe, and inference settings. The runtime reads these settings without model-specific adapters. Images are not supported. Model accuracy depends on the checkpoint and task.
 
-Requires Swift 6, macOS 15+ or iOS 18+. No runtime dependencies beyond Apple frameworks. Model weights are distributed separately and are not included here.
+Requires Swift 6, macOS 15+ or iOS 18+. Tokenization and inference run locally without Python or third-party runtime dependencies. Model weights are not included.
 
-Run `swift test`. See [text evaluation](docs/evaluation.md) for model smoke tests.
+Run `swift test`. See [model support](docs/models.md) and [text evaluation](docs/evaluation.md).
