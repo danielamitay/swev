@@ -178,6 +178,76 @@ struct BPETokenizer {
         return result
     }
 
+    /// A heap selects the lowest-rank pair; original positions break ties left to right.
+    /// Links avoid shifting the remaining symbols after every merge. Stale heap entries
+    /// are discarded using generations, so only the two neighboring pairs need updating.
+    private func merge(_ initial: [String]) -> [String] {
+        guard initial.count > 1 else { return initial }
+        struct Candidate {
+            let rank: Int
+            let left: Int
+            let right: Int
+            let leftGeneration: Int
+            let rightGeneration: Int
+            func precedes(_ other: Self) -> Bool {
+                rank == other.rank ? left < other.left : rank < other.rank
+            }
+        }
+        var symbols = initial.map { Data($0.utf8) }
+        var previous = Array(-1..<(initial.count - 1))
+        var next = Array(1...initial.count)
+        next[initial.count - 1] = -1
+        var generation = Array(repeating: 0, count: initial.count)
+        var heap: [Candidate] = []
+        func push(_ left: Int) {
+            guard left >= 0, next[left] >= 0 else { return }
+            let right = next[left]
+            guard let rank = ranks[Pair(left: symbols[left], right: symbols[right])] else { return }
+            heap.append(Candidate(rank: rank, left: left, right: right,
+                leftGeneration: generation[left], rightGeneration: generation[right]))
+            var i = heap.count - 1
+            while i > 0 {
+                let parent = (i - 1) / 2
+                guard heap[i].precedes(heap[parent]) else { break }
+                heap.swapAt(i, parent); i = parent
+            }
+        }
+        func pop() -> Candidate? {
+            guard !heap.isEmpty else { return nil }
+            if heap.count == 1 { return heap.removeLast() }
+            let first = heap[0]
+            heap[0] = heap.removeLast()
+            var i = 0
+            while 2 * i + 1 < heap.count {
+                var child = 2 * i + 1
+                if child + 1 < heap.count, heap[child + 1].precedes(heap[child]) { child += 1 }
+                guard heap[child].precedes(heap[i]) else { break }
+                heap.swapAt(i, child); i = child
+            }
+            return first
+        }
+        for i in 0..<(initial.count - 1) { push(i) }
+        while let best = pop() {
+            let left = best.left, right = best.right
+            guard generation[left] == best.leftGeneration,
+                  generation[right] == best.rightGeneration,
+                  next[left] == right else { continue }
+            symbols[left].append(symbols[right])
+            generation[left] += 1; generation[right] += 1
+            next[left] = next[right]
+            if next[right] >= 0 { previous[next[right]] = left }
+            next[right] = -1
+            push(previous[left]); push(left)
+        }
+        var result: [String] = []
+        var i = 0
+        while i >= 0 {
+            result.append(String(decoding: symbols[i], as: UTF8.self))
+            i = next[i]
+        }
+        return result
+    }
+
     private func encodePlain(_ text: String) throws -> [Int] {
         let string = text as NSString
         var result: [Int] = []
@@ -187,19 +257,9 @@ struct BPETokenizer {
             guard range.location == offset else { throw SwevError.unsupportedTokenizer }
             offset = NSMaxRange(range)
             let piece = string.substring(with: range)
-            var symbols = spaceMarker == nil ? piece.utf8.map { bytes[Int($0)] } : piece.unicodeScalars.map(String.init)
-            guard symbols.count <= 4096 else { throw SwevError.resourceLimit }
-            while symbols.count > 1 {
-                var best: (index: Int, rank: Int)?
-                for i in 0..<(symbols.count - 1) {
-                    if let rank = ranks[Pair(left: Data(symbols[i].utf8), right: Data(symbols[i + 1].utf8))], rank < (best?.rank ?? Int.max) {
-                        best = (i, rank)
-                    }
-                }
-                guard let best else { break }
-                symbols[best.index] += symbols[best.index + 1]
-                symbols.remove(at: best.index + 1)
-            }
+            let initial = spaceMarker == nil ? piece.utf8.map { bytes[Int($0)] } : piece.unicodeScalars.map(String.init)
+            guard initial.count <= 32_768 else { throw SwevError.resourceLimit }
+            let symbols = merge(initial)
             for symbol in symbols {
                 if let id = vocabulary[Data(symbol.utf8)] { result.append(id) }
                 else if spaceMarker != nil {

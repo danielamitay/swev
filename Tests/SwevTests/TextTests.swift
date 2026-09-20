@@ -240,3 +240,41 @@ private func syntheticTokenizer() -> [String: Any] {
     #expect(row.options == [89, 78]) // Label IDs, not input positions or an assumed ordering.
     #expect(throws: SwevError.invalidMetadata) { try make(recipe.replacingOccurrences(of: #"["Y","N","A","B"]"#, with: #"["multi","N","A","B"]"#)) }
 }
+
+@Test func bpeHeapMatchesRankedMergesAndHandlesLongPieces() throws {
+    var root = syntheticTokenizer()
+    let merges = [["a", "b"], ["b", "a"], ["a", "a"], ["ab", "a"], ["a", "ba"],
+                  ["ab", "ab"], ["aa", "b"], ["b", "b"], ["ba", "ba"], ["aba", "b"]]
+    var model = root["model"] as! [String: Any]
+    var vocabulary = model["vocab"] as! [String: Int]
+    for pair in merges {
+        let merged = pair.joined()
+        if vocabulary[merged] == nil { vocabulary[merged] = vocabulary.count + 1000 }
+    }
+    model["vocab"] = vocabulary; model["merges"] = merges; root["model"] = model
+    let tokenizer = try BPETokenizer(data: JSONSerialization.data(withJSONObject: root))
+    func reference(_ text: String) -> [Int] {
+        var symbols = text.map(String.init)
+        while symbols.count > 1 {
+            var best: (Int, Int)?
+            for i in 0..<(symbols.count - 1) {
+                if let rank = merges.firstIndex(of: [symbols[i], symbols[i + 1]]), rank < (best?.1 ?? Int.max) {
+                    best = (i, rank)
+                }
+            }
+            guard let (i, _) = best else { break }
+            symbols[i] += symbols.remove(at: i + 1)
+        }
+        return symbols.map { vocabulary[$0]! }
+    }
+    var seed: UInt64 = 41
+    for length in 0...150 {
+        let text = String((0..<length).map { _ -> Character in
+            seed = seed &* 6364136223846793005 &+ 1
+            return seed >> 61 < 4 ? "a" : "b"
+        })
+        #expect(try tokenizer.encode(text) == reference(text))
+    }
+    let long = String(repeating: "ab", count: 8192)
+    #expect(try tokenizer.encode(long) == Array(repeating: vocabulary["abab"]!, count: 4096))
+}
