@@ -34,7 +34,7 @@ struct ModelAssets {
         descriptor = try ModelDescriptor.read(metadata: metadata)
         guard descriptor.execution.profile == "text-decision-v1" else { throw SwevError.unsupportedProfile(descriptor.execution.profile) }
         let pre = try read("swev.preprocessing", Preprocessing.self)
-        guard descriptor.execution.inputAdapter == "text-recipe-v1", ["masked-options", "causal-pointer"].contains(pre.tensors) else { throw SwevError.unsupportedProfile(descriptor.execution.inputAdapter) }
+        guard descriptor.execution.inputAdapter == "text-recipe-v1", ["masked-options", "causal-pointer", "causal-labels"].contains(pre.tensors) else { throw SwevError.unsupportedProfile(descriptor.execution.inputAdapter) }
         let limits = descriptor.capabilities.limits
         guard descriptor.capabilities.modalities == ["text"], Set(descriptor.capabilities.questionTypes) == Set(QuestionType.allCases),
               limits.maxQuestionsPerRequest <= 64, (8...2048).contains(pre.sequenceLength), (2...32).contains(pre.optionCapacity),
@@ -73,8 +73,9 @@ struct ModelAssets {
             guard totalBytes <= 32 * 1024 * 1024, data.count == asset.bytes,
                   SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == asset.sha256 else { throw SwevError.metadataIntegrityFailure }
         }
-        let tokenizer = try ByteBPETokenizer(data: Data(metadata[tokenizerAsset.key]!.utf8))
+        let tokenizer = try BPETokenizer(data: Data(metadata[tokenizerAsset.key]!.utf8))
         adapter = try TextAdapter(tokenizer: tokenizer, length: l, optionCapacity: k, recipe: pre.recipe)
+        guard (pre.tensors == "causal-labels") == (pre.recipe.candidateTokens != nil) else { throw SwevError.invalidMetadata }
         tensors = pre.tensors
         postprocessing = try read("swev.postprocessing", Postprocessing.self)
         guard postprocessing.temperatures.count == 3,

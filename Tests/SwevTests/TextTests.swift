@@ -41,11 +41,12 @@ private let hasModels = ProcessInfo.processInfo.environment["SWEV_TEST_MANIFEST"
 @Test(.enabled(if: hasModels)) func tokenizerReferenceParity() throws {
     struct Fixture: Decodable { let text: String; let ids: [Int] }
     for entry in try manifest().tokenizers {
-        let tokenizer = try ByteBPETokenizer(data: Data(contentsOf: URL(fileURLWithPath: entry.path)))
+        let tokenizer = try BPETokenizer(data: Data(contentsOf: URL(fileURLWithPath: entry.path)))
         let url = URL(fileURLWithPath: entry.reference)
         let fixtures = try JSONDecoder().decode([Fixture].self, from: Data(contentsOf: url))
         for fixture in fixtures {
-            #expect(try tokenizer.encode(fixture.text) == fixture.ids, "\(entry.path): \(fixture.text.debugDescription)")
+            let actual = try tokenizer.encode(fixture.text)
+            #expect(actual == fixture.ids, "\(entry.path): \(fixture.text.debugDescription)")
         }
         #expect(throws: SwevError.resourceLimit) { try tokenizer.encode(String(repeating: "x", count: 32769)) }
     }
@@ -54,7 +55,7 @@ private let hasModels = ProcessInfo.processInfo.environment["SWEV_TEST_MANIFEST"
 @Test(.enabled(if: hasModels)) func textAdapterReferenceParity() throws {
     let manifest = try manifest()
     for entry in manifest.adapters {
-        let tokenizer = try ByteBPETokenizer(data: Data(contentsOf: URL(fileURLWithPath: entry.tokenizer)))
+        let tokenizer = try BPETokenizer(data: Data(contentsOf: URL(fileURLWithPath: entry.tokenizer)))
         let recipe = try JSONDecoder().decode(TextRecipe.self, from: Data(contentsOf: URL(fileURLWithPath: entry.recipe)))
         let adapter = try TextAdapter(tokenizer: tokenizer, length: 128, optionCapacity: 4, recipe: recipe)
         let url = URL(fileURLWithPath: entry.reference)
@@ -137,12 +138,12 @@ private let hasModels = ProcessInfo.processInfo.environment["SWEV_TEST_MANIFEST"
 
 @Test func smallTokenizerAndUnsupportedFeatures() throws {
     var root = syntheticTokenizer()
-    let tokenizer = try ByteBPETokenizer(data: JSONSerialization.data(withJSONObject: root))
+    let tokenizer = try BPETokenizer(data: JSONSerialization.data(withJSONObject: root))
     #expect(try tokenizer.encode("hi!") == [256, 33])
     #expect(try tokenizer.encode("e\u{301}") == [195, 169])
     #expect(try tokenizer.encode("hi  [MASK]!") == [256, 300, 33])
     root["normalizer"] = ["type": "Lowercase"]
-    #expect(throws: SwevError.unsupportedTokenizer) { try ByteBPETokenizer(data: JSONSerialization.data(withJSONObject: root)) }
+    #expect(throws: SwevError.unsupportedTokenizer) { try BPETokenizer(data: JSONSerialization.data(withJSONObject: root)) }
 }
 
 @Test func boundedAdmission() throws {
@@ -171,7 +172,7 @@ private func syntheticTokenizer() -> [String: Any] {
 }
 
 @Test func packageSuppliedRecipe() throws {
-    let tokenizer = try ByteBPETokenizer(data: JSONSerialization.data(withJSONObject: syntheticTokenizer()))
+    let tokenizer = try BPETokenizer(data: JSONSerialization.data(withJSONObject: syntheticTokenizer()))
     let source = #"""
     {"padToken":"[MASK]","state":{"op":"format","value":"text-or-json","args":[{"op":"field","value":"state"}]},
     "instructions":{"op":"literal","value":""},
@@ -192,4 +193,39 @@ private func syntheticTokenizer() -> [String: Any] {
     #expect(throws: SwevError.contextOverflow) { try adapter(source).encode(state: "123456789", question: question) }
     #expect(throws: SwevError.invalidMetadata) { try adapter(source.replacingOccurrences(of: #""op":"indexed""#, with: #""op":"script""#)) }
     #expect(throws: SwevError.invalidMetadata) { try adapter(source.replacingOccurrences(of: #"{"kind":"mark"},"#, with: "")) }
+}
+
+@Test func unicodeBPEPreservesExactScalars() throws {
+    let bytes = (0..<256).map { String(format: "\"<0x%02X>\":%d", $0, $0) }.joined(separator: ",")
+    let document = #"""
+    {"version":"1.0","normalizer":{"type":"Replace","pattern":{"String":" "},"content":"▁"},
+    "pre_tokenizer":{"type":"Split","pattern":{"String":" "},"behavior":"MergedWithPrevious","invert":false},
+    "model":{"type":"BPE","byte_fallback":true,"fuse_unk":true,"vocab":{
+    BYTE_ENTRIES,"e":300,"é":301,"\u0301":302,"e\u0301":303,"▁":304,"▁\u0301":305,"\ufeff":306,"\ufeff\ufeff":307},
+    "merges":[["e","\u0301"],["▁","\u0301"],["\ufeff","\ufeff"]]}}
+    """#.replacingOccurrences(of: "BYTE_ENTRIES", with: bytes)
+    let tokenizer = try BPETokenizer(data: Data(document.utf8))
+    #expect(try tokenizer.encode("é") == [301])
+    #expect(try tokenizer.encode("e\u{301}") == [303])
+    #expect(try tokenizer.encode(" \u{301}") == [305])
+    #expect(try tokenizer.encode("\u{feff}\u{feff}") == [307])
+    #expect(try tokenizer.encode("🐈") == [240, 159, 144, 136])
+}
+
+@Test func joinedTextAndCandidateTokenIDs() throws {
+    let tokenizer = try BPETokenizer(data: JSONSerialization.data(withJSONObject: syntheticTokenizer()))
+    let recipe = #"""
+    {"padToken":"[MASK]","tokenization":"joined","candidateTokens":["Y","N","A","B"],
+    "state":{"op":"field","value":"state"},"instructions":{"op":"literal","value":""},
+    "options":{"choice":{"op":"field","value":"id"},"score":{"op":"format","value":"python","args":[{"op":"field","value":"description"}]},"noul":{"op":"indexed","args":[{"op":"literal","value":"i"},{"op":"literal","value":"!"}]}},
+    "replacements":[],"segments":[{"kind":"group","value":"state"},{"kind":"options","segments":[{"kind":"option"}]}],"groupLimits":{},"scoreLegend":"json"}
+    """#
+    func make(_ text: String) throws -> TextAdapter {
+        try TextAdapter(tokenizer: tokenizer, length: 32, optionCapacity: 4,
+                        recipe: JSONDecoder().decode(TextRecipe.self, from: Data(text.utf8)))
+    }
+    let row = try make(recipe).encode(state: "h", question: .noul(id: "q", instructions: "unused"))
+    #expect(row.ids == [256, 33]) // BPE merges across recipe segment boundaries.
+    #expect(row.options == [89, 78]) // Label IDs, not input positions or an assumed ordering.
+    #expect(throws: SwevError.invalidMetadata) { try make(recipe.replacingOccurrences(of: #"["Y","N","A","B"]"#, with: #"["multi","N","A","B"]"#)) }
 }

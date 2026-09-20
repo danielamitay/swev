@@ -7,7 +7,7 @@ and scoring configuration. The runtime does not infer these from model weights.
 
 The current execution profile is `text-decision-v1` with input adapter
 `text-recipe-v1`. It supports static batch-one text decisions with either
-`masked-options` or `causal-pointer` tensors and an `option_logits` output.
+`masked-options`, `causal-pointer`, or `causal-labels` tensors and an `option_logits` output.
 Images are rejected. New neural architectures may require a new execution
 profile; arbitrary packages are not automatically compatible.
 
@@ -21,10 +21,12 @@ profile; arbitrary packages are not automatically compatible.
 - `swev.tokenizer.asset-index`: UTF-8 tokenizer payload keys, byte counts, and SHA-256 hashes.
 - `swev.provenance`: optional source identity and conversion information.
 
-The tokenizer reads NFC byte-level BPE vocabulary, merges, special tokens, and
-pre-tokenization settings from the embedded tokenizer document. It supports a
-ByteLevel stage with its standard regex, or an isolated regex Split followed by
-ByteLevel without regex. Unsupported tokenizer features fail explicitly.
+The tokenizer reads BPE vocabulary, merges, special tokens, and pre-tokenization
+settings from the embedded tokenizer document. It supports NFC byte-level BPE
+with standard ByteLevel splitting or an isolated regex Split followed by
+ByteLevel without regex. It also supports Unicode BPE with literal space-marker
+replacement and UTF-8 byte fallback. Vocabulary keys preserve exact Unicode
+scalar sequences. Unsupported tokenizer features fail explicitly.
 
 ## Text recipes
 
@@ -48,7 +50,17 @@ Regex replacements apply to rendered text before tokenization. Segment kinds
 assemble tokens: `token` appends an explicit special token, `group` appends state
 or instructions, `options` repeats child `segments`, `option` appends the current
 option text, and `mark` records an option position (`value: previous` records the
-previous token). Each option must have exactly one valid position.
+previous token). Each positional option must have exactly one valid position.
+
+For `causal-labels`, set `candidateTokens` to an ordered list of distinct,
+single-token labels, one per candidate slot, and `tokenization` to `joined`.
+The runtime joins the recipe's text before tokenization, preserving BPE merges
+across segment boundaries. A `text` segment appends a literal string. Label
+recipes omit `mark`; `option_indices` contains candidate token IDs instead of
+prompt positions. The model scores those vocabulary entries at the decision
+position. Probabilities are conditional on the offered labels, not confidence
+that an unconstrained text generator would emit one. This does not require a
+trained classification head. Other layouts retain segmented tokenization.
 
 `groupLimits` bounds state, instructions, or each option's token count.
 `prefixBudget` reserves `minimumInstructionSlots` inside `maximum`, charging each

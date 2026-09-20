@@ -47,7 +47,7 @@ def prepare(source, destination, contract_path):
     expected = {"input_ids": integer([1, length]), "option_indices": integer([1, options])}
     if pre["tensors"] == "masked-options":
         expected.update(token_mask=integer([1, length]), option_mask=integer([1, options]), question_type=integer([1]))
-    elif pre["tensors"] == "causal-pointer":
+    elif pre["tensors"] in ("causal-pointer", "causal-labels"):
         expected.update(position_ids=integer([1, length]), decision_indices=integer([1]),
                         attention_bias={"shape": [1, 1, length, length], "dtype": "float32"})
     else:

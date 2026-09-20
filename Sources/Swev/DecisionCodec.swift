@@ -68,7 +68,11 @@ extension JSONValue {
 
     /// Parses JSON without losing object order; rejects duplicate keys and nonfinite numbers.
     public static func parse(_ data: Data) throws -> JSONValue {
-        guard data.count <= 1_048_576 else { throw SwevError.resourceLimit }
+        try parse(data, maximumBytes: 1_048_576)
+    }
+
+    static func parse(_ data: Data, maximumBytes: Int) throws -> JSONValue {
+        guard data.count <= maximumBytes else { throw SwevError.resourceLimit }
         var parser = OrderedJSONParser(bytes: Array(data))
         let value = try parser.value(depth: 0)
         parser.whitespace()
@@ -106,11 +110,11 @@ private struct OrderedJSONParser {
         case 34: return .string(try string())
         case 123:
             offset += 1; whitespace()
-            var fields: [(String, JSONValue)] = []; var keys: Set<String> = []
+            var fields: [(String, JSONValue)] = []; var keys: Set<Data> = []
             if current == 125 { offset += 1; return .object(fields) }
             while true {
                 whitespace(); let key = try string()
-                guard keys.insert(key).inserted else { throw SwevError.invalidRequest("Duplicate JSON object keys") }
+                guard keys.insert(Data(key.utf8)).inserted else { throw SwevError.invalidRequest("Duplicate JSON object keys") }
                 whitespace(); try expect(58)
                 fields.append((key, try value(depth: depth + 1))); whitespace()
                 if current == 125 { offset += 1; break }; try expect(44)

@@ -25,6 +25,8 @@ struct TextRecipe: Decodable {
         let minimumInstructionSlots: Int
         let optionOverhead: Int
     }
+    var candidateTokens: [String]? = nil
+    var tokenization: String? = nil
     let padToken: String
     let state: Expression
     let instructions: Expression
@@ -37,18 +39,28 @@ struct TextRecipe: Decodable {
 }
 
 struct TextAdapter {
-    let tokenizer: ByteBPETokenizer
+    let tokenizer: BPETokenizer
     let length: Int
     let optionCapacity: Int
     let recipe: TextRecipe
     let padID: Int
 
-    init(tokenizer: ByteBPETokenizer, length: Int, optionCapacity: Int, recipe: TextRecipe) throws {
+    init(tokenizer: BPETokenizer, length: Int, optionCapacity: Int, recipe: TextRecipe) throws {
         self.tokenizer = tokenizer
         self.length = length
         self.optionCapacity = optionCapacity
         self.recipe = recipe
         self.padID = try tokenizer.tokenID(recipe.padToken)
+        guard recipe.tokenization == nil || ["segments", "joined"].contains(recipe.tokenization) else { throw SwevError.invalidMetadata }
+        if let labels = recipe.candidateTokens {
+            guard recipe.tokenization == "joined", labels.count == optionCapacity, Set(labels).count == labels.count else { throw SwevError.invalidMetadata }
+            let ids = try labels.map { label in
+                let tokens = try tokenizer.encode(label)
+                guard tokens.count == 1 else { throw SwevError.invalidMetadata }
+                return tokens[0]
+            }
+            guard Set(ids).count == ids.count else { throw SwevError.invalidMetadata }
+        } else if recipe.tokenization == "joined" { throw SwevError.invalidMetadata }
         guard Set(recipe.options.keys) == Set(["choice", "score", "noul"]),
               ["json", "indented"].contains(recipe.scoreLegend),
               Set(recipe.groupLimits.keys).isSubset(of: ["state", "instructions", "options"]),
@@ -83,6 +95,7 @@ struct TextAdapter {
             for segment in segments {
                 if segment.kind != "options", segment.segments != nil { throw SwevError.invalidMetadata }
                 switch segment.kind {
+                case "text": guard recipe.tokenization == "joined", let text = segment.value, text.utf8.count <= 32768 else { throw SwevError.invalidMetadata }
                 case "token": guard let token = segment.value else { throw SwevError.invalidMetadata }; _ = try tokenizer.tokenID(token)
                 case "group": guard ["state", "instructions"].contains(segment.value) else { throw SwevError.invalidMetadata }
                 case "options":
@@ -96,7 +109,7 @@ struct TextAdapter {
                 default: throw SwevError.invalidMetadata
                 }
             }
-            guard !inOption || marks == 1 else { throw SwevError.invalidMetadata }
+            guard !inOption || marks == (recipe.candidateTokens == nil ? 1 : 0) else { throw SwevError.invalidMetadata }
         }
         try validateSegments(recipe.segments)
         guard optionBlocks == 1 else { throw SwevError.invalidMetadata }
@@ -105,31 +118,33 @@ struct TextAdapter {
     func encode(state: JSONValue, question: Question) throws -> EncodedQuestion {
         guard question.optionCount <= optionCapacity else { throw SwevError.tooManyOptions(limit: optionCapacity) }
         let base: [String: JSONValue] = ["state": state, "instructions": question.instructions, "type": .string(question.type.rawValue)]
-        func tokens(_ text: String) throws -> [Int] {
+        func sanitize(_ text: String) throws -> String {
             var text = text
             for rule in recipe.replacements {
                 let regex = try NSRegularExpression(pattern: rule.pattern)
                 text = regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: rule.replacement)
             }
-            return try tokenizer.encode(text)
+            return text
         }
-        func render(_ expression: TextRecipe.Expression, _ fields: [String: JSONValue]) throws -> [Int] {
+        func render(_ expression: TextRecipe.Expression, _ fields: [String: JSONValue]) throws -> String {
             let value = try evaluate(expression, fields: fields)
             guard case .string(let text) = value else { throw SwevError.invalidMetadata }
-            return try tokens(text)
+            return try sanitize(text)
         }
         var optionFields: [[String: JSONValue]] = []
         switch question {
         case .choice(_, _, let options):
-            optionFields = options.map { ["id": .string($0.id), "description": $0.description ?? .null] }
+            optionFields = options.enumerated().map { ["id": .string($0.element.id), "description": $0.element.description ?? .null, "index": .number(Double($0.offset))] }
         case .score(_, _, let levels):
             optionFields = levels.enumerated().map { ["index": .number(Double($0.offset)), "description": $0.element] }
         case .noul(_, _, let no, let yes):
             optionFields = [["index": .number(0), "description": no ?? .null], ["index": .number(1), "description": yes ?? .null]]
         }
         let optionExpression = recipe.options[question.type.rawValue]!
-        let options = try optionFields.map { try render(optionExpression, base.merging($0) { _, new in new }) }
-        let groups = try ["state": render(recipe.state, base), "instructions": render(recipe.instructions, base)]
+        let optionTexts = try optionFields.map { try render(optionExpression, base.merging($0) { _, new in new }) }
+        let textGroups = try ["state": render(recipe.state, base), "instructions": render(recipe.instructions, base)]
+        let options = try optionTexts.map(tokenizer.encode)
+        let groups = try textGroups.mapValues(tokenizer.encode)
         for (name, limit) in recipe.groupLimits {
             let rows = name == "options" ? options : [groups[name] ?? []]
             guard rows.allSatisfy({ $0.count <= limit }) else { throw SwevError.contextOverflow }
@@ -137,6 +152,27 @@ struct TextAdapter {
         if let budget = recipe.prefixBudget {
             let remaining = budget.maximum - options.reduce(0) { $0 + $1.count + budget.optionOverhead }
             guard remaining >= budget.minimumInstructionSlots, groups["instructions"]!.count <= remaining else { throw SwevError.contextOverflow }
+        }
+        if recipe.tokenization == "joined" {
+            func join(_ segments: [TextRecipe.Segment], option: String? = nil) throws -> String {
+                var text = ""
+                for segment in segments {
+                    switch segment.kind {
+                    case "token", "text": text += segment.value!
+                    case "group": text += textGroups[segment.value!]!
+                    case "options":
+                        for value in optionTexts { text += try join(segment.segments!, option: value) }
+                    case "option": text += option!
+                    default: throw SwevError.invalidMetadata
+                    }
+                    guard text.utf8.count <= 32768 else { throw SwevError.resourceLimit }
+                }
+                return text
+            }
+            let ids = try tokenizer.encode(join(recipe.segments))
+            guard !ids.isEmpty, ids.count <= length else { throw SwevError.contextOverflow }
+            let labels = try recipe.candidateTokens!.prefix(question.optionCount).map { try tokenizer.encode($0)[0] }
+            return .init(ids: ids, options: labels, type: question.type == .choice ? 0 : question.type == .score ? 1 : 2)
         }
         var ids: [Int] = [], positions: [Int] = []
         func emit(_ segments: [TextRecipe.Segment], option: [Int]? = nil, depth: Int = 0) throws {
