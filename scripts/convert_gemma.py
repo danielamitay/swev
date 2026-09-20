@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Export Gemma 4 E2B IT as a shared-weight Swev text/image package.
 
-Fixed 384px image canvas, 64 image tokens, ten answer labels. No audio/video.
+Fixed 384px image canvas, 64 image tokens, sixteen answer labels. No audio/video.
 Use --check-only to generate source references without exporting weights.
 """
 
@@ -31,7 +31,7 @@ from transformers.models.gemma4.modeling_gemma4 import (
 
 SIZE = 384
 TOKENS = 64
-LABELS = list("ABCDEFGHIJ")
+LABELS = list("ABCDEFGHIJKLMNOP")
 PREFIX = "Choose the best answer to the question using the state below. Reply with only the answer letter.\n\nState: "
 BETWEEN = "\n\nQuestion: "
 OPTIONS = "\n\nAnswers:\n"
@@ -72,6 +72,17 @@ def load_text(checkpoint):
     return model
 
 
+def attention_masks(input_ids, attention_bias, window):
+    positions = torch.arange(input_ids.shape[1], device=input_ids.device)
+    within_window = positions[None, :] > positions[:, None] - window
+    sliding = torch.where(within_window, attention_bias, -10000.0)
+    return {"full_attention": attention_bias, "sliding_attention": sliding}
+
+
+def sequence_buckets(length):
+    return sorted({n for n in (128, 256, 512, 1024, 2048, 4096) if n <= length} | {length})
+
+
 class TextDecision(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
@@ -83,10 +94,7 @@ class TextDecision(torch.nn.Module):
         out = self.model.model(
             input_ids=input_ids.long(),
             position_ids=position_ids.long(),
-            attention_mask={
-                "full_attention": attention_bias,
-                "sliding_attention": attention_bias,
-            },
+            attention_mask=attention_masks(input_ids, attention_bias, self.model.config.sliding_window),
             use_cache=False,
         ).last_hidden_state
         h = torch.index_select(out, 1, decision_indices.long()).squeeze(1)
@@ -184,10 +192,7 @@ class ImageDecision(torch.nn.Module):
             inputs_embeds=embedding,
             per_layer_inputs=per_layer,
             position_ids=position_ids.long(),
-            attention_mask={
-                "full_attention": attention_bias,
-                "sliding_attention": attention_bias,
-            },
+            attention_mask=attention_masks(input_ids, attention_bias, self.text.config.sliding_window),
             use_cache=False,
         ).last_hidden_state
         last = torch.index_select(h, 1, decision_indices.long()).squeeze(1)
@@ -247,6 +252,8 @@ def prompt(request, image_tokens=""):
         + text(question["instructions"])
         + OPTIONS
     )
+    if not 2 <= len(options) <= len(LABELS):
+        raise ValueError(f"Each question requires 2–{len(LABELS)} options")
     content += (
         "".join(f"{LABELS[i]}. {value}\n" for i, value in enumerate(options)) + END
     )
@@ -357,8 +364,8 @@ def recipe(image=False):
 def contract(args, tokenizer, image=False):
     length = args.image_length if image else args.text_length
     config = {
-        "contractVersion": "1.0",
-        "modelVersion": "0.2.0",
+        "contractVersion": "2.0",
+        "modelVersion": "0.3.0",
         "revision": args.revision,
         "id": args.output.stem,
         "architecture": "causal-language-model",
@@ -448,12 +455,17 @@ def export(wrapper, data, records, destination):
             tuple(torch.from_numpy(value) for value in data.values()),
             check_trace=False,
         )
+    buckets = records["swev.preprocessing"].get("sequenceBuckets", [])
+    features = []
+    for key, value in data.items():
+        shape = value.shape
+        if len(buckets) > 1 and key in ("input_ids", "position_ids", "attention_bias"):
+            shapes = [(1, 1, n, n) if key == "attention_bias" else (1, n) for n in buckets]
+            shape = ct.EnumeratedShapes(shapes=shapes, default=shapes[0])
+        features.append(ct.TensorType(name=key, shape=shape, dtype=value.dtype))
     model = ct.convert(
         traced,
-        inputs=[
-            ct.TensorType(name=key, shape=value.shape, dtype=value.dtype)
-            for key, value in data.items()
-        ],
+        inputs=features,
         outputs=[ct.TensorType(name="option_logits", dtype=np.float32)],
         minimum_deployment_target=ct.target.macOS15,
         compute_precision=ct.precision.FLOAT32,
@@ -487,15 +499,8 @@ def run(args):
         or config.vision_config.pooling_kernel_size != 3
     ):
         raise ValueError("Unsupported vision configuration")
-    if (
-        not 8
-        <= args.text_length
-        <= args.image_length
-        <= config.text_config.sliding_window
-    ):
-        raise ValueError(
-            "Lengths must fit the sliding window; larger contexts require a separate sliding mask"
-        )
+    if not (8 <= args.text_length <= 4096 and 8 <= args.image_length <= 4096):
+        raise ValueError("Text and image lengths must be between 8 and 4096")
     tokenizer = AutoTokenizer.from_pretrained(
         str(args.checkpoint), local_files_only=True
     )
@@ -505,6 +510,7 @@ def run(args):
         contract(args, tokenizer),
         contract(args, tokenizer, True),
     )
+    text_records["swev.preprocessing"]["sequenceBuckets"] = sequence_buckets(args.text_length)
     write_json(
         args.work_dir / "recipe.json", text_records["swev.preprocessing"]["recipe"]
     )
@@ -516,7 +522,9 @@ def run(args):
         for case in json.loads(args.cases.read_text()):
             rendered, count = prompt(case["request"])
             ids = tokenizer.encode(rendered, add_special_tokens=False)
-            data = inputs(ids, tokenizer, args.text_length)
+            if len(ids) > args.text_length:
+                raise ValueError(f"Prompt requires {len(ids)} tokens, capacity is {args.text_length}")
+            data = inputs(ids, tokenizer, next(n for n in sequence_buckets(args.text_length) if n >= len(ids)))
             source = (
                 text_model(
                     input_ids=torch.tensor([ids]),
@@ -534,7 +542,7 @@ def run(args):
             )
     if not references:
         raise ValueError("At least one text case is required")
-    text_data = data
+    text_data = inputs(tokenizer.encode("<bos>Example", add_special_tokens=False), tokenizer, sequence_buckets(args.text_length)[0])
     write_json(args.work_dir / "text-reference.json", references)
     samples = [
         "apple",
@@ -710,7 +718,7 @@ def main():
         type=Path,
         help="Optional JSON cases with id, image, request; paths relative to this file",
     )
-    parser.add_argument("--text-length", type=int, default=128)
+    parser.add_argument("--text-length", type=int, default=4096)
     parser.add_argument("--image-length", type=int, default=256)
     parser.add_argument("--tolerance", type=float, default=1e-4)
     parser.add_argument("--check-only", action="store_true")

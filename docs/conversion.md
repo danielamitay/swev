@@ -1,6 +1,6 @@
 # Converting models
 
-Conversion runs offline in Python on macOS; the resulting Swift runtime has no Python dependency. A Swev package includes its graph, weights, tokenizer, prompt recipe, calibration, and [schema 1.0 metadata](schema.md). Merely renaming a checkpoint or adding metadata does not make it compatible.
+Conversion runs offline in Python on macOS; the resulting Swift runtime has no Python dependency. A Swev package includes its graph, weights, tokenizer, prompt recipe, calibration, and [versioned schema metadata](schema.md). Merely renaming a checkpoint or adding metadata does not make it compatible.
 
 The included exporter targets **Gemma 4 E2B IT**. Other architectures need a wrapper that implements one of the [supported tensor contracts](models.md), followed by the generic packaging tools. Diffusion models are not supported by these scripts.
 
@@ -33,13 +33,13 @@ The exporter expects that unsharded `model.safetensors` layout. It strictly load
 .venv/bin/python scripts/convert_gemma.py \
   --checkpoint .local/gemma/checkpoint \
   --revision 3e22461f65e89153144f8adb70e3b8c2cc9845a7 \
-  --output .local/ready/gemma-4-e2b-it-swev-fp32-l256-k10.mlpackage \
+  --output .local/ready/gemma-4-e2b-it-swev-fp32-l4096-k16.mlpackage \
   --work-dir .local/gemma-validation
 ```
 
-This produces **one package** with shared weights: a 128-token text graph and a 256-token image graph. Requests without an image skip vision. Temporary individual exports are removed after bundling. Existing output paths are rejected. An unsuccessful export never replaces an existing final package.
+This produces **one package** with shared weights: a text graph with 128/256/512/1024/2048/4096-token buckets and a 256-token image graph. Requests without an image skip vision. Temporary individual exports are removed after bundling. Existing output paths are rejected. An unsuccessful export never replaces an existing final package.
 
-Defaults are ten candidate labels (A–J), FP32 computation, a 384×384 RGB image canvas, white nearest-neighbor aspect-fit letterboxing, and 64 image tokens. Only supplied options appear in the prompt; unused candidate slots are excluded from probability normalization. The text route remains 128 tokens by default, so longer option descriptions can still overflow. Audio/video are omitted. The model scores restricted next-token answer letters; it is not a generative chat interface or a separately trained decision head. Long requests throw context overflow. Length overrides cannot exceed the source sliding window because this wrapper uses one attention mask for both attention types.
+Defaults are sixteen candidate labels (A–P), FP32 computation, a 384×384 RGB image canvas, white nearest-neighbor aspect-fit letterboxing, and 64 image tokens. Only supplied options appear in the prompt; unused candidate slots are excluded from probability normalization. The runtime pads text to the smallest supported bucket; the complete rendered prompt must fit within 4096 tokens. Audio/video are omitted. The model scores restricted next-token answer letters; it is not a generative chat interface or a separately trained decision head. Long requests throw context overflow. The wrapper derives distinct full and sliding attention masks. Text and image limits can be set independently, up to 4096 tokens. The image limit includes the image token sequence.
 
 Before export, the script checks the wrapper against source-model logits for the repository's 17 text cases and three generated color images. The image comparison uses the same fixed preprocessing, not the source processor's variable-resolution policy. Use `--image-cases path/to/cases.json` for a broader image suite; each entry has `id`, `image`, and a single-question `request`, with image paths relative to the JSON file. Generated references and integration manifests go into `--work-dir`.
 
@@ -49,13 +49,13 @@ Add `--check-only` to run source/wrapper checks and generate references without 
 
 ```sh
 .venv/bin/python scripts/package_models.py quantize \
-  .local/ready/gemma-4-e2b-it-swev-fp32-l256-k10.mlpackage \
-  .local/ready/gemma-4-e2b-it-swev-int4-l256-k10.mlpackage
+  .local/ready/gemma-4-e2b-it-swev-fp32-l4096-k16.mlpackage \
+  .local/ready/gemma-4-e2b-it-swev-int4-l4096-k16.mlpackage
 ```
 
 This applies symmetric INT4 block quantization (32 weights per block) to eligible weights in both graphs, then deduplicates shared weights again. Core ML Tools' default minimum weight threshold is 2048 elements; small or unsupported constants remain uncompressed. Computation precision is unchanged. This is **INT4 weight compression, not NVIDIA NVFP4 or four-bit floating-point execution**. Smaller files do not guarantee lower runtime memory or latency; Core ML may expand weights when loading.
 
-The validated Gemma artifacts were approximately 19.16 GB FP32 and 3.02 GB INT4. Their text smoke tests passed 17/17; the separate 15-image suite passed 14/15 for both. These are small smoke tests, not general accuracy claims. Every new checkpoint or quantization needs its own evaluation.
+Every new checkpoint, context shape, or compression needs its own parity and quality evaluation. INT4 is optional tooling; it is not used for the current palette-compressed artifacts.
 
 ## Validate in Swift
 
@@ -68,17 +68,17 @@ SWEV_IMAGE_TEST_MANIFEST="$PWD/.local/gemma-validation/image-manifest.json" \
   swift test --filter imageModelReferenceParity
 
 .venv/bin/python scripts/evaluate.py \
-  --model .local/ready/gemma-4-e2b-it-swev-fp32-l256-k10.mlpackage \
+  --model .local/ready/gemma-4-e2b-it-swev-fp32-l4096-k16.mlpackage \
   --timeout 900 --driver .build/release/swev
 
 .venv/bin/python scripts/evaluate.py \
-  --model .local/ready/gemma-4-e2b-it-swev-int4-l256-k10.mlpackage \
+  --model .local/ready/gemma-4-e2b-it-swev-int4-l4096-k16.mlpackage \
   --timeout 900 --driver .build/release/swev
 ```
 
 The source references check numerical parity, including tokenization, prompt assembly, image pixels, and returning to text after images. The labeled evaluator checks semantic correctness separately. INT4 changes probabilities, so strict FP32 parity is not an appropriate INT4 quality threshold; inspect probability drift and labeled results instead. The CLI evaluator currently accepts text only. For quantized image acceptance, use a Swift caller with the same labeled image cases and compare decisions separately from FP32 numerical parity.
 
-Custom text cases can be supplied to the exporter with `--cases`. The existing `endToEndModels` Swift test uses the repository's fixed 17-case order; use the standard text cases for its generated manifest. The image integration test reads requests directly from its references.
+Custom text cases can be supplied to the exporter with `--cases`. The generated manifest records the case file for the `endToEndModels` Swift test. Include source-parity cases near each bucket boundary and at the maximum context length, as well as requests using every candidate slot. The image integration test reads requests directly from its references.
 
 Ordinary tests need no model downloads. Test the conversion tools with synthetic graphs (including native Swift loading of FP32 and INT4 outputs):
 

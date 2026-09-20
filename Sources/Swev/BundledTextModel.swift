@@ -58,6 +58,11 @@ struct BundledTextModel: Decodable {
               assets.descriptor.capabilities.limits.maxQuestionsPerRequest == root.capabilities.limits.maxQuestionsPerRequest,
               assets.descriptor.capabilities.limits.maxOptionsPerQuestion == root.capabilities.limits.maxOptionsPerQuestion,
               assets.descriptor.capabilities.limits.maxSequenceTokens <= root.capabilities.limits.maxSequenceTokens else { throw SwevError.invalidMetadata }
+        if root.contractVersion == "2.0" {
+            guard let preJSON = shared["swev.preprocessing"],
+                  let pre = try? JSONDecoder().decode(ModelAssets.Preprocessing.self, from: Data(preJSON.utf8)),
+                  root.capabilities.limits.maxSequenceTokens == max(pre.sequenceLength, assets.adapter.length) else { throw SwevError.invalidMetadata }
+        }
         loaded = true
         return (textModel, assets, compiled)
     }
