@@ -17,4 +17,4 @@ print(try response.noul("edible").noul)
 
 Requires Swift 6, macOS 15+ or iOS 18+. No runtime dependencies beyond Apple frameworks. Model weights are distributed separately and are not included here.
 
-Run `swift test` to build and test the package.
+Run `swift test`. See [text evaluation](docs/evaluation.md) for model smoke tests.

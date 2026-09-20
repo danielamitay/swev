@@ -1,0 +1,330 @@
+[
+  {
+    "id": "edible-apple",
+    "request": {
+      "state": "apple",
+      "questions": {
+        "edible": {
+          "type": "noul",
+          "instructions": "Is this item an edible food for humans?"
+        }
+      }
+    },
+    "expected": {
+      "edible": {
+        "min": 0.5,
+        "max": 1
+      }
+    }
+  },
+  {
+    "id": "edible-banana",
+    "request": {
+      "state": "banana",
+      "questions": {
+        "edible": {
+          "type": "noul",
+          "instructions": "Is this item an edible food for humans?"
+        }
+      }
+    },
+    "expected": {
+      "edible": {
+        "min": 0.5,
+        "max": 1
+      }
+    }
+  },
+  {
+    "id": "edible-bread",
+    "request": {
+      "state": "bread",
+      "questions": {
+        "edible": {
+          "type": "noul",
+          "instructions": "Is this item an edible food for humans?"
+        }
+      }
+    },
+    "expected": {
+      "edible": {
+        "min": 0.5,
+        "max": 1
+      }
+    }
+  },
+  {
+    "id": "edible-carrot",
+    "request": {
+      "state": "carrot",
+      "questions": {
+        "edible": {
+          "type": "noul",
+          "instructions": "Is this item an edible food for humans?"
+        }
+      }
+    },
+    "expected": {
+      "edible": {
+        "min": 0.5,
+        "max": 1
+      }
+    }
+  },
+  {
+    "id": "edible-rice",
+    "request": {
+      "state": "rice",
+      "questions": {
+        "edible": {
+          "type": "noul",
+          "instructions": "Is this item an edible food for humans?"
+        }
+      }
+    },
+    "expected": {
+      "edible": {
+        "min": 0.5,
+        "max": 1
+      }
+    }
+  },
+  {
+    "id": "edible-cheese",
+    "request": {
+      "state": "cheese",
+      "questions": {
+        "edible": {
+          "type": "noul",
+          "instructions": "Is this item an edible food for humans?"
+        }
+      }
+    },
+    "expected": {
+      "edible": {
+        "min": 0.5,
+        "max": 1
+      }
+    }
+  },
+  {
+    "id": "edible-brick",
+    "request": {
+      "state": "brick",
+      "questions": {
+        "edible": {
+          "type": "noul",
+          "instructions": "Is this item an edible food for humans?"
+        }
+      }
+    },
+    "expected": {
+      "edible": {
+        "min": 0,
+        "max": 0.499999
+      }
+    }
+  },
+  {
+    "id": "edible-stapler",
+    "request": {
+      "state": "stapler",
+      "questions": {
+        "edible": {
+          "type": "noul",
+          "instructions": "Is this item an edible food for humans?"
+        }
+      }
+    },
+    "expected": {
+      "edible": {
+        "min": 0,
+        "max": 0.499999
+      }
+    }
+  },
+  {
+    "id": "edible-soap",
+    "request": {
+      "state": "soap",
+      "questions": {
+        "edible": {
+          "type": "noul",
+          "instructions": "Is this item an edible food for humans?"
+        }
+      }
+    },
+    "expected": {
+      "edible": {
+        "min": 0,
+        "max": 0.499999
+      }
+    }
+  },
+  {
+    "id": "edible-pencil",
+    "request": {
+      "state": "pencil",
+      "questions": {
+        "edible": {
+          "type": "noul",
+          "instructions": "Is this item an edible food for humans?"
+        }
+      }
+    },
+    "expected": {
+      "edible": {
+        "min": 0,
+        "max": 0.499999
+      }
+    }
+  },
+  {
+    "id": "edible-glass-marble",
+    "request": {
+      "state": "glass marble",
+      "questions": {
+        "edible": {
+          "type": "noul",
+          "instructions": "Is this item an edible food for humans?"
+        }
+      }
+    },
+    "expected": {
+      "edible": {
+        "min": 0,
+        "max": 0.499999
+      }
+    }
+  },
+  {
+    "id": "edible-steel-nail",
+    "request": {
+      "state": "steel nail",
+      "questions": {
+        "edible": {
+          "type": "noul",
+          "instructions": "Is this item an edible food for humans?"
+        }
+      }
+    },
+    "expected": {
+      "edible": {
+        "min": 0,
+        "max": 0.499999
+      }
+    }
+  },
+  {
+    "id": "animal",
+    "request": {
+      "state": "A dog is barking.",
+      "questions": {
+        "category": {
+          "type": "choice",
+          "instructions": "Classify the main subject.",
+          "criteria": {
+            "animal": "A living animal",
+            "vehicle": "A vehicle used for transport",
+            "plant": "A plant"
+          }
+        }
+      }
+    },
+    "expected": {
+      "category": {
+        "choice": "animal"
+      }
+    }
+  },
+  {
+    "id": "vehicle",
+    "request": {
+      "state": "A bus is parked.",
+      "questions": {
+        "category": {
+          "type": "choice",
+          "instructions": "Classify the main subject.",
+          "criteria": {
+            "animal": "A living animal",
+            "vehicle": "A vehicle used for transport",
+            "plant": "A plant"
+          }
+        }
+      }
+    },
+    "expected": {
+      "category": {
+        "choice": "vehicle"
+      }
+    }
+  },
+  {
+    "id": "plant",
+    "request": {
+      "state": "A rose is blooming.",
+      "questions": {
+        "category": {
+          "type": "choice",
+          "instructions": "Classify the main subject.",
+          "criteria": {
+            "animal": "A living animal",
+            "vehicle": "A vehicle used for transport",
+            "plant": "A plant"
+          }
+        }
+      }
+    },
+    "expected": {
+      "category": {
+        "choice": "plant"
+      }
+    }
+  },
+  {
+    "id": "positive",
+    "request": {
+      "state": "I loved every minute of it. Absolutely wonderful!",
+      "questions": {
+        "sentiment": {
+          "type": "score",
+          "instructions": "Rate the sentiment of this review.",
+          "criteria": [
+            "Negative",
+            "Neutral",
+            "Positive"
+          ]
+        }
+      }
+    },
+    "expected": {
+      "sentiment": {
+        "min": 1.5,
+        "max": 2
+      }
+    }
+  },
+  {
+    "id": "negative",
+    "request": {
+      "state": "It was terrible. I hated every minute.",
+      "questions": {
+        "sentiment": {
+          "type": "score",
+          "instructions": "Rate the sentiment of this review.",
+          "criteria": [
+            "Negative",
+            "Neutral",
+            "Positive"
+          ]
+        }
+      }
+    },
+    "expected": {
+      "sentiment": {
+        "min": 0,
+        "max": 0.5
+      }
+    }
+  }
+]
