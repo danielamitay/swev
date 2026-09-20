@@ -44,6 +44,7 @@ struct TextAdapter {
     let optionCapacity: Int
     let recipe: TextRecipe
     let padID: Int
+    let imageSlots: Int
 
     init(tokenizer: BPETokenizer, length: Int, optionCapacity: Int, recipe: TextRecipe) throws {
         self.tokenizer = tokenizer
@@ -89,12 +90,16 @@ struct TextAdapter {
             _ = try NSRegularExpression(pattern: rule.pattern)
         }
         var optionBlocks = 0
+        var imageSlots = 0
         func validateSegments(_ segments: [TextRecipe.Segment], inOption: Bool = false) throws {
             guard !segments.isEmpty, segments.count <= 64 else { throw SwevError.invalidMetadata }
             var marks = 0
             for segment in segments {
                 if segment.kind != "options", segment.segments != nil { throw SwevError.invalidMetadata }
                 switch segment.kind {
+                case "image":
+                    guard !inOption, recipe.tokenization == "joined" else { throw SwevError.invalidMetadata }
+                    imageSlots += 1
                 case "text": guard recipe.tokenization == "joined", let text = segment.value, text.utf8.count <= 32768 else { throw SwevError.invalidMetadata }
                 case "token": guard let token = segment.value else { throw SwevError.invalidMetadata }; _ = try tokenizer.tokenID(token)
                 case "group": guard ["state", "instructions"].contains(segment.value) else { throw SwevError.invalidMetadata }
@@ -112,10 +117,11 @@ struct TextAdapter {
             guard !inOption || marks == (recipe.candidateTokens == nil ? 1 : 0) else { throw SwevError.invalidMetadata }
         }
         try validateSegments(recipe.segments)
-        guard optionBlocks == 1 else { throw SwevError.invalidMetadata }
+        self.imageSlots = imageSlots
+        guard optionBlocks == 1, imageSlots <= 1 else { throw SwevError.invalidMetadata }
     }
 
-    func encode(state: JSONValue, question: Question) throws -> EncodedQuestion {
+    func encode(state: JSONValue, question: Question, imageTokens: String? = nil) throws -> EncodedQuestion {
         guard question.optionCount <= optionCapacity else { throw SwevError.tooManyOptions(limit: optionCapacity) }
         let base: [String: JSONValue] = ["state": state, "instructions": question.instructions, "type": .string(question.type.rawValue)]
         func sanitize(_ text: String) throws -> String {
@@ -158,6 +164,7 @@ struct TextAdapter {
                 var text = ""
                 for segment in segments {
                     switch segment.kind {
+                    case "image": text += imageTokens ?? ""
                     case "token", "text": text += segment.value!
                     case "group": text += textGroups[segment.value!]!
                     case "options":

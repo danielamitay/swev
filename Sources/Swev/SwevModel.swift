@@ -128,15 +128,18 @@ public actor SwevModel {
 
     private func perform(_ request: DecisionRequest) throws -> DecisionResponse {
         try Task.checkCancellation()
-        guard request.images.isEmpty else { throw SwevError.unsupportedModality }
+        guard request.images.isEmpty || assets.image != nil else { throw SwevError.unsupportedModality }
+        guard request.images.count <= 1 else { throw SwevError.invalidRequest("At most one image is supported") }
         guard request.questions.count <= descriptor.capabilities.limits.maxQuestionsPerRequest else { throw SwevError.resourceLimit }
         try request.validate()
+        let imagePixels = try assets.image.map { try $0.pixels(request.images.first) }
+        let imageTokens = request.images.isEmpty ? nil : assets.image?.tokenSequence
         var answers: [Answer] = []
         var tokens = 0
         for question in request.questions {
             try Task.checkCancellation()
-            let encoded = try assets.adapter.encode(state: request.state, question: question)
-            let features = try inputs(encoded)
+            let encoded = try assets.adapter.encode(state: request.state, question: question, imageTokens: imageTokens)
+            let features = try inputs(encoded, imagePixels: imagePixels)
             try Task.checkCancellation()
             let output = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: features))
             try Task.checkCancellation()
@@ -158,7 +161,7 @@ public actor SwevModel {
                      answers: answers, usage: .init(inputTokens: tokens, outputTokens: 0), metadata: request.metadata)
     }
 
-    private func inputs(_ row: EncodedQuestion) throws -> [String: MLFeatureValue] {
+    private func inputs(_ row: EncodedQuestion, imagePixels: MLMultiArray?) throws -> [String: MLFeatureValue] {
         let l = assets.adapter.length, k = assets.adapter.optionCapacity
         func integers(_ values: [Int], _ shape: [Int]) throws -> MLFeatureValue {
             let array = try MLMultiArray(shape: shape.map(NSNumber.init), dataType: .int32)
@@ -184,6 +187,7 @@ public actor SwevModel {
             }
             result["attention_bias"] = MLFeatureValue(multiArray: mask)
         }
+        if let imagePixels { result["image_pixels"] = MLFeatureValue(multiArray: imagePixels) }
         return result
     }
 }

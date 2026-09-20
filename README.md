@@ -13,7 +13,7 @@ let response = try await model.predict(
 print(try response.noul("edible").noul)
 ```
 
-Compatible model packages bundle their tokenizer, text formatting recipe, and inference settings. The runtime reads these settings without model-specific adapters. Images are not supported. Model accuracy depends on the checkpoint and task.
+Compatible model packages bundle their tokenizer, text formatting recipe, and inference settings. The runtime reads these settings without model-specific adapters. Image-capable packages also accept a single PNG or JPEG. Model accuracy depends on the checkpoint and task.
 
 Requires Swift 6, macOS 15+ or iOS 18+. Tokenization and inference run locally without Python or third-party runtime dependencies. Model weights are not included.
 

@@ -8,6 +8,7 @@ struct ModelAssets {
         let optionCapacity: Int
         let recipe: TextRecipe
         let tensors: String
+        var image: ImagePreprocessing? = nil
     }
     struct Postprocessing: Decodable {
         let temperatures: [Double]
@@ -21,6 +22,7 @@ struct ModelAssets {
     let descriptor: ModelDescriptor
     let adapter: TextAdapter
     let tensors: String
+    let image: ImagePreprocessing?
     let postprocessing: Postprocessing
 
     init(model: MLModel) throws {
@@ -32,11 +34,15 @@ struct ModelAssets {
             catch { throw SwevError.invalidMetadata }
         }
         descriptor = try ModelDescriptor.read(metadata: metadata)
-        guard descriptor.execution.profile == "text-decision-v1" else { throw SwevError.unsupportedProfile(descriptor.execution.profile) }
+        guard ["text-decision-v1", "vision-decision-v1"].contains(descriptor.execution.profile) else { throw SwevError.unsupportedProfile(descriptor.execution.profile) }
         let pre = try read("swev.preprocessing", Preprocessing.self)
         guard descriptor.execution.inputAdapter == "text-recipe-v1", ["masked-options", "causal-pointer", "causal-labels"].contains(pre.tensors) else { throw SwevError.unsupportedProfile(descriptor.execution.inputAdapter) }
+        let isVision = descriptor.execution.profile == "vision-decision-v1"
+        guard isVision == (pre.image != nil), !isVision || pre.tensors == "causal-labels" else { throw SwevError.invalidMetadata }
+        try pre.image?.validate()
+        image = pre.image
         let limits = descriptor.capabilities.limits
-        guard descriptor.capabilities.modalities == ["text"], Set(descriptor.capabilities.questionTypes) == Set(QuestionType.allCases),
+        guard descriptor.capabilities.modalities == (isVision ? ["text", "image"] : ["text"]), Set(descriptor.capabilities.questionTypes) == Set(QuestionType.allCases),
               limits.maxQuestionsPerRequest <= 64, (8...2048).contains(pre.sequenceLength), (2...32).contains(pre.optionCapacity),
               pre.sequenceLength == limits.maxSequenceTokens, pre.optionCapacity == limits.maxOptionsPerQuestion else { throw SwevError.invalidMetadata }
         let signatures = try read("swev.signatures", Signatures.self)
@@ -48,6 +54,7 @@ struct ModelAssets {
         } else {
             expected["position_ids"] = feature([1, l]); expected["decision_indices"] = feature([1]); expected["attention_bias"] = feature([1, 1, l, l], "float32")
         }
+        if let image = pre.image { expected["image_pixels"] = feature([1, image.height, image.width, 3], "float32") }
         let required = Signatures(inputs: expected, outputs: ["option_logits": feature([1, k], "float32")])
         guard signatures == required else { throw SwevError.signatureMismatch }
         func actual(_ features: [String: MLFeatureDescription]) throws -> [String: Feature] {
@@ -76,6 +83,10 @@ struct ModelAssets {
         let tokenizer = try BPETokenizer(data: Data(metadata[tokenizerAsset.key]!.utf8))
         adapter = try TextAdapter(tokenizer: tokenizer, length: l, optionCapacity: k, recipe: pre.recipe)
         guard (pre.tensors == "causal-labels") == (pre.recipe.candidateTokens != nil) else { throw SwevError.invalidMetadata }
+        guard adapter.imageSlots == (isVision ? 1 : 0) else { throw SwevError.invalidMetadata }
+        if let image = pre.image {
+            guard try tokenizer.encode(image.tokenSequence).count < l else { throw SwevError.invalidMetadata }
+        }
         tensors = pre.tensors
         postprocessing = try read("swev.postprocessing", Postprocessing.self)
         guard postprocessing.temperatures.count == 3,

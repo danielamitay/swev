@@ -80,3 +80,19 @@ Probabilities must already include the source model's calibration.
 
 Ordinary `swift test` skips the three model-dependent tests and uses synthetic
 unit fixtures. Full release parity needs a larger, independently frozen suite.
+
+## Opt-in image integration tests
+
+Set `SWEV_IMAGE_TEST_MANIFEST` to a local JSON file containing `model`,
+`preprocessing`, `cases`, and `textReference` paths, plus an optional output
+`report` path. `preprocessing` is the package's preprocessing JSON. Each image
+case contains a request, an image filename, a `pixels` filename, and source
+`probabilities`. Image and pixel paths are relative to the cases file. Pixel
+references are little-endian Float32 RGB tensors in NHWC order. Text references
+contain requests and probabilities for checking requests without an image.
+
+Run `SWEV_IMAGE_TEST_MANIFEST=/path/to/manifest.json swift test --filter image`.
+These checks compare preprocessing tensors and native inference to source
+references. Semantic accuracy is evaluated separately; source-model mistakes
+must not be hidden by changing parity expectations. Default tests generate tiny
+synthetic images to check padding, transparency, content types, and EXIF rotation.

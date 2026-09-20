@@ -48,7 +48,7 @@ public enum Question: Sendable {
     }
 }
 
-/// Owned encoded bytes. No model profile currently supports images.
+/// Owned encoded image bytes. Support and preprocessing are defined by the model package.
 public struct ImageInput: Sendable {
     public let data: Data
     public let contentType: String

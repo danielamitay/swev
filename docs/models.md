@@ -1,14 +1,15 @@
 # Model contract
 
 `SwevModel.load(from:)` accepts a local Core ML package, model, or compiled model
-with the Swev text contract. The public API is independent of model identity.
+with the Swev model contract. The public API is independent of model identity.
 Model packages supply tokenizer data, formatting recipes, tensor layout, limits,
 and scoring configuration. The runtime does not infer these from model weights.
 
-The current execution profile is `text-decision-v1` with input adapter
-`text-recipe-v1`. It supports static batch-one text decisions with either
-`masked-options`, `causal-pointer`, or `causal-labels` tensors and an `option_logits` output.
-Images are rejected. New neural architectures may require a new execution
+The execution profiles are `text-decision-v1` and `vision-decision-v1`, both with
+input adapter `text-recipe-v1`. They support static batch-one decisions and an
+`option_logits` output. Text models use `masked-options`, `causal-pointer`, or
+`causal-labels` tensors. Image-capable models use `causal-labels` plus an
+`image_pixels` float tensor. New neural architectures may require a new execution
 profile; arbitrary packages are not automatically compatible.
 
 ## Embedded metadata
@@ -96,3 +97,41 @@ must finish before cancellation returns. Temporary compiled assets live with the
 model instance. CPU-only execution is validated locally; other compute units and
 iOS devices need their own validation. Tokenizer hashes detect corruption, not
 whether a model source is trustworthy.
+
+## Image inputs
+
+Image-capable packages declare modalities `["text", "image"]`, the
+`vision-decision-v1` profile, and an `image` object in `swev.preprocessing`:
+
+```json
+{"width":384,"height":384,"resize":"fit-nearest","background":[255,255,255],"tokenSequence":"MODEL_IMAGE_TOKENS"}
+```
+
+The joined text recipe contains exactly one `image` segment, which inserts the
+package's `tokenSequence` when an image is supplied. The model graph must match
+that token sequence and its image tensor. Text-only requests omit those tokens
+and receive a zero image tensor; the graph must ignore that unused tensor.
+
+Pass owned PNG or JPEG bytes through the existing API:
+
+```swift
+let response = try await model.predict(
+    state: "Use the attached image.",
+    questions: [.noul(id: "red", instructions: "Is the image predominantly red?")],
+    images: [.init(data: imageData, contentType: "image/png")]
+)
+```
+
+The initial image processor handles EXIF orientation, converts to sRGB, composites
+transparency over the configured background, and fits the image into a fixed
+canvas using nearest-neighbor sampling and centered padding. It produces RGB
+Float32 values in `[0,1]`, in `[1,height,width,3]` order. These choices are explicit
+model-contract requirements, not inferred preprocessing for arbitrary models.
+
+At most one image is accepted per request. Encoded data is limited to 32 MiB,
+decoded images to 16 megapixels and 8192 pixels per side, and model input canvases
+to 1024 pixels per side. Animated images, mismatched content types, and invalid
+images fail. Preprocessing runs once per request off the main actor; the initial
+combined graph executes for each question. Vision feature caching, audio, and
+video are not implemented. The JSON Lines CLI remains text-only; image input is
+available through the typed Swift API.

@@ -20,7 +20,7 @@ def prepare(source, destination, contract_path):
     if not required.issubset(records):
         raise ValueError("Contract requires config, preprocessing, and postprocessing")
     config = records["swev.config"]
-    if config["execution"] != {"profile": "text-decision-v1", "inputAdapter": "text-recipe-v1"}:
+    if config["execution"]["profile"] not in ("text-decision-v1", "vision-decision-v1") or config["execution"]["inputAdapter"] != "text-recipe-v1":
         raise ValueError("Unsupported execution contract")
     model = ct.models.MLModel(str(source), skip_model_load=True)
     metadata = model.user_defined_metadata
@@ -52,6 +52,9 @@ def prepare(source, destination, contract_path):
                         attention_bias={"shape": [1, 1, length, length], "dtype": "float32"})
     else:
         raise ValueError("Unsupported tensor layout")
+    if config["execution"]["profile"] == "vision-decision-v1":
+        image = pre["image"]
+        expected["image_pixels"] = {"shape": [1, image["height"], image["width"], 3], "dtype": "float32"}
     if signatures != {"inputs": expected, "outputs": {"option_logits": {"shape": [1, options], "dtype": "float32"}}}:
         raise ValueError("Unexpected export signature")
     if "recipe" not in pre:
