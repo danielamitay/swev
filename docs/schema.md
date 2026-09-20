@@ -35,7 +35,7 @@ A Swev asset is a standard Core ML model with UTF-8 strings in its creator-defin
 }
 ```
 
-All fields except `revision` are required. Identity/version/profile/adapter strings must be nonempty. Questions are bounded to 1–64, options to 2–32, and sequence length to 8–2048. Capabilities must match preprocessing and actual tensors. All three question types are required. Unknown JSON fields are ignored within this supported schema; they cannot change its required semantics.
+All fields except `revision` are required. Identity/version/profile/adapter strings must be nonempty. Questions are bounded to 1–64 and options to 2–32. Sequence length is 8–2048 in schema 1.0 and 8–4096 in schema 2.0. Capabilities must match preprocessing and actual tensors. All three question types are required. Unknown JSON fields are ignored within this supported schema; they cannot change its required semantics.
 
 ## Metadata records
 

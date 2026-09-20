@@ -78,6 +78,8 @@ SWEV_IMAGE_TEST_MANIFEST="$PWD/.local/gemma-validation/image-manifest.json" \
 
 The source references check numerical parity, including tokenization, prompt assembly, image pixels, and returning to text after images. The labeled evaluator checks semantic correctness separately. INT4 changes probabilities, so strict FP32 parity is not an appropriate INT4 quality threshold; inspect probability drift and labeled results instead. The CLI evaluator currently accepts text only. For quantized image acceptance, use a Swift caller with the same labeled image cases and compare decisions separately from FP32 numerical parity.
 
+Large-context exports must be exercised at every supported size on the target device. Full attention grows quadratically with sequence length; an export can exceed memory even when its weights fit. Attention computed in bounded query blocks can reduce scratch memory while preserving access to all keys. Compare that graph with the unsplit source model, and measure quality separately from numerical parity.
+
 Custom text cases can be supplied to the exporter with `--cases`. The generated manifest records the case file for the `endToEndModels` Swift test. Include source-parity cases near each bucket boundary and at the maximum context length, as well as requests using every candidate slot. The image integration test reads requests directly from its references.
 
 Ordinary tests need no model downloads. Test the conversion tools with synthetic graphs (including native Swift loading of FP32 and INT4 outputs):
