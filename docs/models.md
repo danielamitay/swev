@@ -5,8 +5,8 @@ with the Swev model contract. The public API is independent of model identity.
 Model packages supply tokenizer data, formatting recipes, tensor layout, limits,
 and scoring configuration. The runtime does not infer these from model weights.
 
-The execution profiles are `text-decision-v1` and `vision-decision-v1`, both with
-input adapter `text-recipe-v1`. They support static batch-one decisions and an
+The execution profiles are `text-decision-v1`, `vision-decision-v1`, and
+`routed-vision-decision-v1`, all with input adapter `text-recipe-v1`. They support static batch-one decisions and an
 `option_logits` output. Text models use `masked-options`, `causal-pointer`, or
 `causal-labels` tensors. Image-capable models use `causal-labels` plus an
 `image_pixels` float tensor. New neural architectures may require a new execution
@@ -170,6 +170,7 @@ exceed a single graph.
 No downloads or external model sidecars are required.
 
 The text graph may have a smaller sequence budget than the image graph, bounded
-by the root `maxSequenceTokens`. Each graph applies its own recipe truncation
-rules. Exporters should check text → image → text transitions, probability
+by the root `maxSequenceTokens`. Each graph applies its own recipe context limits; oversized requests are rejected. Exporters should check text → image → text transitions, probability
 parity, and latency separately. Image features are not cached between questions.
+
+See the [versioned schema](schema.md), [conversion workflow](conversion.md), and [Hugging Face loader](huggingface.md).

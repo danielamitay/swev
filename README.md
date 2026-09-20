@@ -19,4 +19,4 @@ Requires Swift 6, macOS 15+ or iOS 18+. Tokenization and inference run locally w
 
 Run `swift test`. See [model support](docs/models.md) and [text evaluation](docs/evaluation.md).
 
-Load and cache a hosted package with `SwevModel.load(from: HuggingFaceModel(repository: "owner/repo", package: "model.mlpackage"))`. See [Hugging Face loading](docs/huggingface.md) and the [versioned schema](docs/schema.md).
+Load and cache a hosted package with `SwevModel.load(from: HuggingFaceModel(repository: "owner/repo", package: "model.mlpackage"))`. See [Hugging Face loading](docs/huggingface.md), the [versioned schema](docs/schema.md), and [model conversion](docs/conversion.md).
