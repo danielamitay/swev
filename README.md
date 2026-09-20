@@ -18,3 +18,5 @@ Compatible model packages bundle their tokenizer, text formatting recipe, and in
 Requires Swift 6, macOS 15+ or iOS 18+. Tokenization and inference run locally without Python or third-party runtime dependencies. Model weights are not included.
 
 Run `swift test`. See [model support](docs/models.md) and [text evaluation](docs/evaluation.md).
+
+Load and cache a hosted package with `SwevModel.load(from: HuggingFaceModel(repository: "owner/repo", package: "model.mlpackage"))`. See [Hugging Face loading](docs/huggingface.md) and the [versioned schema](docs/schema.md).
