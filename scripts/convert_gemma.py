@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Export Gemma 4 E2B IT as a shared-weight Swev text/image package.
 
-Fixed 384px image canvas, 64 image tokens, four answer labels. No audio/video.
+Fixed 384px image canvas, 64 image tokens, ten answer labels. No audio/video.
 Use --check-only to generate source references without exporting weights.
 """
 
@@ -31,7 +31,7 @@ from transformers.models.gemma4.modeling_gemma4 import (
 
 SIZE = 384
 TOKENS = 64
-LABELS = ["A", "B", "C", "D"]
+LABELS = list("ABCDEFGHIJ")
 PREFIX = "Choose the best answer to the question using the state below. Reply with only the answer letter.\n\nState: "
 BETWEEN = "\n\nQuestion: "
 OPTIONS = "\n\nAnswers:\n"
@@ -239,7 +239,7 @@ def prompt(request, image_tokens=""):
             for key, value in question["criteria"].items()
         ]
     if not 2 <= len(options) <= len(LABELS):
-        raise ValueError("This exporter supports 2–4 candidates")
+        raise ValueError(f"This exporter supports 2–{len(LABELS)} candidates")
     content = (
         PREFIX
         + text(request["state"])
@@ -358,7 +358,7 @@ def contract(args, tokenizer, image=False):
     length = args.image_length if image else args.text_length
     config = {
         "contractVersion": "1.0",
-        "modelVersion": "0.1.0",
+        "modelVersion": "0.2.0",
         "revision": args.revision,
         "id": args.output.stem,
         "architecture": "causal-language-model",
@@ -367,7 +367,7 @@ def contract(args, tokenizer, image=False):
             "questionTypes": ["choice", "score", "noul"],
             "limits": {
                 "maxQuestionsPerRequest": 64,
-                "maxOptionsPerQuestion": 4,
+                "maxOptionsPerQuestion": len(LABELS),
                 "maxSequenceTokens": length,
             },
         },
@@ -378,7 +378,7 @@ def contract(args, tokenizer, image=False):
     }
     preprocessing = {
         "sequenceLength": length,
-        "optionCapacity": 4,
+        "optionCapacity": len(LABELS),
         "tensors": "causal-labels",
         "recipe": recipe(image),
     }
@@ -565,12 +565,15 @@ def run(args):
                 {
                     "tokenizer": str(args.checkpoint / "tokenizer.json"),
                     "recipe": str(args.work_dir / "recipe.json"),
+                    "sequenceLength": args.text_length,
+                    "optionCapacity": len(LABELS),
                     "reference": str(args.work_dir / "text-reference.json"),
                 }
             ],
             "models": [
                 {
                     "path": str(args.output),
+                    "cases": str(args.cases.resolve()),
                     "reference": str(args.work_dir / "text-reference.json"),
                 }
             ],

@@ -33,13 +33,13 @@ The exporter expects that unsharded `model.safetensors` layout. It strictly load
 .venv/bin/python scripts/convert_gemma.py \
   --checkpoint .local/gemma/checkpoint \
   --revision 3e22461f65e89153144f8adb70e3b8c2cc9845a7 \
-  --output .local/ready/gemma-4-e2b-it-swev-fp32-l256-k4.mlpackage \
+  --output .local/ready/gemma-4-e2b-it-swev-fp32-l256-k10.mlpackage \
   --work-dir .local/gemma-validation
 ```
 
 This produces **one package** with shared weights: a 128-token text graph and a 256-token image graph. Requests without an image skip vision. Temporary individual exports are removed after bundling. Existing output paths are rejected. An unsuccessful export never replaces an existing final package.
 
-Defaults are four candidate labels, FP32 computation, a 384×384 RGB image canvas, white nearest-neighbor aspect-fit letterboxing, and 64 image tokens. Audio/video are omitted. The model scores restricted next-token answer letters; it is not a generative chat interface or a separately trained decision head. Long requests throw context overflow. Length overrides cannot exceed the source sliding window because this wrapper uses one attention mask for both attention types.
+Defaults are ten candidate labels (A–J), FP32 computation, a 384×384 RGB image canvas, white nearest-neighbor aspect-fit letterboxing, and 64 image tokens. Only supplied options appear in the prompt; unused candidate slots are excluded from probability normalization. The text route remains 128 tokens by default, so longer option descriptions can still overflow. Audio/video are omitted. The model scores restricted next-token answer letters; it is not a generative chat interface or a separately trained decision head. Long requests throw context overflow. Length overrides cannot exceed the source sliding window because this wrapper uses one attention mask for both attention types.
 
 Before export, the script checks the wrapper against source-model logits for the repository's 17 text cases and three generated color images. The image comparison uses the same fixed preprocessing, not the source processor's variable-resolution policy. Use `--image-cases path/to/cases.json` for a broader image suite; each entry has `id`, `image`, and a single-question `request`, with image paths relative to the JSON file. Generated references and integration manifests go into `--work-dir`.
 
@@ -49,8 +49,8 @@ Add `--check-only` to run source/wrapper checks and generate references without 
 
 ```sh
 .venv/bin/python scripts/package_models.py quantize \
-  .local/ready/gemma-4-e2b-it-swev-fp32-l256-k4.mlpackage \
-  .local/ready/gemma-4-e2b-it-swev-int4-l256-k4.mlpackage
+  .local/ready/gemma-4-e2b-it-swev-fp32-l256-k10.mlpackage \
+  .local/ready/gemma-4-e2b-it-swev-int4-l256-k10.mlpackage
 ```
 
 This applies symmetric INT4 block quantization (32 weights per block) to eligible weights in both graphs, then deduplicates shared weights again. Core ML Tools' default minimum weight threshold is 2048 elements; small or unsupported constants remain uncompressed. Computation precision is unchanged. This is **INT4 weight compression, not NVIDIA NVFP4 or four-bit floating-point execution**. Smaller files do not guarantee lower runtime memory or latency; Core ML may expand weights when loading.
@@ -68,11 +68,11 @@ SWEV_IMAGE_TEST_MANIFEST="$PWD/.local/gemma-validation/image-manifest.json" \
   swift test --filter imageModelReferenceParity
 
 .venv/bin/python scripts/evaluate.py \
-  --model .local/ready/gemma-4-e2b-it-swev-fp32-l256-k4.mlpackage \
+  --model .local/ready/gemma-4-e2b-it-swev-fp32-l256-k10.mlpackage \
   --timeout 900 --driver .build/release/swev
 
 .venv/bin/python scripts/evaluate.py \
-  --model .local/ready/gemma-4-e2b-it-swev-int4-l256-k4.mlpackage \
+  --model .local/ready/gemma-4-e2b-it-swev-int4-l256-k10.mlpackage \
   --timeout 900 --driver .build/release/swev
 ```
 

@@ -29,9 +29,12 @@ private struct Manifest: Decodable {
     let tokenizers: [Tokenizer]
     let adapters: [Adapter]
     struct Tokenizer: Decodable { let path: String; let reference: String }
-    struct Adapter: Decodable { let tokenizer: String; let recipe: String; let reference: String }
+    struct Adapter: Decodable {
+        let tokenizer: String; let recipe: String; let reference: String
+        let sequenceLength: Int?; let optionCapacity: Int?
+    }
     let models: [Model]
-    struct Model: Decodable { let path: String; let reference: String }
+    struct Model: Decodable { let path: String; let reference: String; let cases: String? }
 }
 private func manifest() throws -> Manifest {
     try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: URL(fileURLWithPath: ProcessInfo.processInfo.environment["SWEV_TEST_MANIFEST"]!)))
@@ -57,7 +60,8 @@ private let hasModels = ProcessInfo.processInfo.environment["SWEV_TEST_MANIFEST"
     for entry in manifest.adapters {
         let tokenizer = try BPETokenizer(data: Data(contentsOf: URL(fileURLWithPath: entry.tokenizer)))
         let recipe = try JSONDecoder().decode(TextRecipe.self, from: Data(contentsOf: URL(fileURLWithPath: entry.recipe)))
-        let adapter = try TextAdapter(tokenizer: tokenizer, length: 128, optionCapacity: 4, recipe: recipe)
+        let adapter = try TextAdapter(tokenizer: tokenizer, length: entry.sequenceLength ?? 128,
+                                      optionCapacity: entry.optionCapacity ?? recipe.candidateTokens?.count ?? 4, recipe: recipe)
         let url = URL(fileURLWithPath: entry.reference)
         guard case .array(let fixtures) = try JSONValue.parse(Data(contentsOf: url)) else { Issue.record("Bad fixtures"); return }
         for fixture in fixtures {
@@ -78,9 +82,9 @@ private let hasModels = ProcessInfo.processInfo.environment["SWEV_TEST_MANIFEST"
 
 @Test(.enabled(if: hasModels)) func endToEndModels() async throws {
     let fixtureURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("fixtures/text-cases.json")
-    let cases = try JSONValue.parse(Data(contentsOf: fixtureURL))
-    guard case .array(let cases) = cases else { Issue.record("Invalid fixture"); return }
     for entry in try manifest().models {
+        let casesURL = entry.cases.map { URL(fileURLWithPath: $0) } ?? fixtureURL
+        guard case .array(let cases) = try JSONValue.parse(Data(contentsOf: casesURL)) else { Issue.record("Invalid fixture"); return }
         let model = try await SwevModel.load(from: URL(fileURLWithPath: entry.path), configuration: .init(computeUnits: .cpuOnly))
         let references = try JSONValue.parse(Data(contentsOf: URL(fileURLWithPath: entry.reference)))
         let rows: [JSONValue]

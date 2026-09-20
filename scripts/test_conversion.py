@@ -49,7 +49,7 @@ class ConversionTests(unittest.TestCase):
         def make(path, image):
             specs = [
                 mb.TensorSpec((1, 512), types.int32),
-                mb.TensorSpec((1, 4), types.int32),
+                mb.TensorSpec((1, 10), types.int32),
                 mb.TensorSpec((1, 512), types.int32),
                 mb.TensorSpec((1,), types.int32),
                 mb.TensorSpec((1, 1, 512, 512), types.fp32),
@@ -66,7 +66,7 @@ class ConversionTests(unittest.TestCase):
                             x=image_pixels, axes=[0, 1, 2, 3], keep_dims=False
                         ),
                     )
-                return mb.tile(x=value, reps=[1, 4], name="option_logits")
+                return mb.tile(x=value, reps=[1, 10], name="option_logits")
 
             if image:
 
@@ -105,7 +105,7 @@ class ConversionTests(unittest.TestCase):
             literal = lambda value: {"op": "literal", "value": value}
             recipe = {
                 "tokenization": "joined",
-                "candidateTokens": ["A", "B", "C", "D"],
+                "candidateTokens": list("ABCDEFGHIJ"),
                 "padToken": "[PAD]",
                 "state": {
                     "op": "format",
@@ -128,7 +128,7 @@ class ConversionTests(unittest.TestCase):
                 recipe["segments"].insert(0, {"kind": "image"})
             pre = {
                 "sequenceLength": 512,
-                "optionCapacity": 4,
+                "optionCapacity": 10,
                 "tensors": "causal-labels",
                 "recipe": recipe,
             }
@@ -157,7 +157,7 @@ class ConversionTests(unittest.TestCase):
                         "questionTypes": ["choice", "score", "noul"],
                         "limits": {
                             "maxQuestionsPerRequest": 64,
-                            "maxOptionsPerQuestion": 4,
+                            "maxOptionsPerQuestion": 10,
                             "maxSequenceTokens": 512,
                         },
                     },
@@ -207,7 +207,7 @@ class ConversionTests(unittest.TestCase):
                 sum(p.stat().st_size for p in compressed.rglob("*.bin")),
                 sum(p.stat().st_size for p in output.rglob("*.bin")),
             )
-            # Exercise the generated package through the public Swift loader and all 17 text requests.
+            # Exercise smaller requests and all ten candidate slots through the Swift loader.
             import subprocess
 
             cases = json.loads(
@@ -215,6 +215,24 @@ class ConversionTests(unittest.TestCase):
                     Path(__file__).resolve().parents[1] / "fixtures/text-cases.json"
                 ).read_text()
             )
+            for kind, criteria in (
+                ("choice", {letter: None for letter in "ABCDEFGHIJ"}),
+                ("score", list("0123456789")),
+            ):
+                cases.append({
+                    "request": {
+                        "state": "J" if kind == "choice" else "9",
+                        "questions": {
+                            "decision": {
+                                "type": kind,
+                                "instructions": "Choose the matching option.",
+                                "criteria": criteria,
+                            }
+                        },
+                    }
+                })
+            case_path = root / "cases.json"
+            case_path.write_text(json.dumps(cases))
             references = []
             for case in cases:
                 question = next(iter(case["request"]["questions"].values()))
@@ -231,7 +249,7 @@ class ConversionTests(unittest.TestCase):
                         "tokenizers": [],
                         "adapters": [],
                         "models": [
-                            {"path": str(path), "reference": str(reference)}
+                            {"path": str(path), "reference": str(reference), "cases": str(case_path)}
                             for path in (output, compressed)
                         ],
                     }
