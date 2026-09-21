@@ -26,3 +26,6 @@ models/
 *.gguf
 *.npz
 *.npy
+/Examples/*/Package.resolved
+
+*.profraw

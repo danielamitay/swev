@@ -1,52 +1,31 @@
-# Compute policy
+# Measuring decisions
 
-Select the execution devices when loading a model:
+Keep one model loaded and evaluate requests sequentially on an Apple silicon Mac. Do not run competing model inference when comparing latency. Report the model revision, stored precision, hardware, runtime version, and input suite together with the result.
 
-```swift
-let model = try await SwevModel.load(
-    from: modelURL,
-    configuration: .init(computeUnits: .cpuAndGPU)
-)
-```
+`Examples/Benchmark` measures the public `predict` call, including tokenization, prompt construction, model-specific processing, inference, and decision scoring. It excludes input-file reads and output serialization. Model loading is reported separately. Each request gets one excluded warmup before its timed prediction.
 
-The README quickstart and runnable example use CPU+GPU. The library default remains `.all`, which allows Core ML to choose devices; it does not guarantee the fastest path. The evaluation CLI uses `.cpuOnly` to preserve its existing baseline.
+Loading time measures the loading API on an existing cache. Downloads and first-prediction warmup are separate costs. Image requests include vision processing; text-only requests do not run the vision encoder. Larger models and longer inputs can have very different latency from short smoke tests.
 
-**Exception: use `.cpuOnly` for the current Gemma FP32 export.** Its first GPU text prediction aborts inside Apple's Metal graph runtime with a shape/stride assertion. This terminates the process rather than throwing a catchable Swift error. Also prefer `.cpuOnly` for Kev 4B: it showed no meaningful short-request speedup, and its 4,096-token GPU check was stopped after severe memory pressure. The runnable example accepts `--cpu-only` before the repository argument.
+Probabilities are specific to the pinned runtime: matching answers across Swift and Python does not imply identical distributions. For GPT-OSS, five short/long reference cases chose the same answers, but the largest candidate-probability difference was 5.7 percentage points with matching MLX core versions. The table reports measured Swift results.
 
-Retain the loaded model between requests. Download caching avoids downloading weights again, but a fresh model instance still has compilation and initialization costs. GPU acceleration does not imply Neural Engine execution, and a smaller weight file does not guarantee faster inference.
+Accuracy must include the complete suite denominator. Report rejected requests separately and count them as incorrect, rather than comparing only the easy inputs that fit. A full run of the pinned public JevBench dataset is 231 cases, not the official full leaderboard. Text scores do not establish image accuracy.
 
-## Paired measurements
+See the [README model table](../README.md#models) for measurements and [MLX benchmark instructions](mlx.md#reproduce-a-benchmark) for the runner. Generated predictions, source-parity fixtures, and local reports belong under `.local/`, outside version control.
 
-Measured September 20–21, 2026 on Apple M4 Max, 128 GiB RAM. Swift release build, public API, serial execution. Each of the 17 text fixtures was warmed and measured three times (51 predictions per model/policy); loading and warmup are excluded. These are short-request timings, not the full JevBench latency or accuracy.
+## Measured snapshots
 
-| Model | CPU-only mean | CPU+GPU mean | Speedup | Text correct CPU → GPU |
-| --- | ---: | ---: | ---: | ---: |
-| Gemma 4 E2B IT · FP32 | 846.9 ms | Process abort | — | 17/17 → — |
-| Gemma 4 E2B IT · LUT4 | 843.6 ms | 144.2 ms | 5.8× | 17/17 → 17/17 |
-| Gemma 4 E2B IT · LUT8 | 352.5 ms | 150.2 ms | 2.3× | 17/17 → 17/17 |
-| Kev 0.5B · FP32 | 97.8 ms | 13.2 ms | 7.4× | 12/17 → 12/17 |
-| Kev 0.6B · FP32 | 213.6 ms | 16.9 ms | 12.6× | 15/17 → 15/17 |
-| Kev 4B · FP32 | 875.8 ms | 863.6 ms | 1.0× | 13/17 → 13/17 |
-| Laya EN · FP32 | 75.4 ms | 14.6 ms | 5.2× | 14/17 → 14/17 |
-| SmolVLM 500M · FP32 | 121.2 ms | 13.9 ms | 8.7× | 17/17 → 17/17 |
+Model revisions for the September 21, 2026 evaluation:
 
-## Image requests
-
-15 image fixtures, one warmed measurement each. Image preprocessing is included; initial image-route loading is excluded.
-
-| Model | CPU-only mean | CPU+GPU mean | Correct CPU → GPU |
-| --- | ---: | ---: | ---: |
-| Gemma 4 E2B IT · FP32 | 2227.0 ms | Not completed | 14/15 → — |
-| Gemma 4 E2B IT · LUT4 | 532.7 ms | 221.8 ms | 12/15 → 13/15 |
-| Gemma 4 E2B IT · LUT8 | 530.6 ms | 231.7 ms | 14/15 → 14/15 |
-| SmolVLM 500M · FP32 | 218.2 ms | 44.2 ms | 12/15 → 12/15 |
-
-The six models recommended for CPU+GPU completed checks at all six text context sizes (128–4,096), 16-option requests, and image routes where supported.
-
-These checks used serial execution on a working desktop, with normal background activity. They are not a full JevBench rerun or a guarantee for other hardware. Keep the README’s CPU-only JevBench results separate from these shorter requests. A fresh instance or an unseen context bucket can add substantial setup time.
-
-LUT4 changed one image-position answer from incorrect to correct; its maximum image probability difference was 0.320. Tested text probabilities differed by less than 0.000009 across the completed pairs, with no changed choices. Validate representative inputs when changing compute policy, especially image inputs.
-
-Kev 4B exhausted practical memory headroom while traversing all context buckets in one process under both policies; those maximum-context runs were stopped. A fresh CPU-only instance passed the 4,096-token case and returned to short text. A fresh CPU+GPU retry again caused severe memory pressure and was stopped before producing a result. Prefer `.cpuOnly` for Kev 4B; the largest GPU context remains unvalidated. Treat repeated large-bucket transitions as a separate memory concern.
-
-The separate Gemma FP32 GPU image-only attempt could not complete because Core ML compilation ran out of temporary disk space. Its image GPU behavior is unverified; the text-route abort alone rules out recommending CPU+GPU for that package.
+| Repository | Revision |
+| --- | --- |
+| [mlx-community/Muse-Glimmer-30B-4bit](https://huggingface.co/mlx-community/Muse-Glimmer-30B-4bit) | [3e7677d7a40d](https://huggingface.co/mlx-community/Muse-Glimmer-30B-4bit/tree/3e7677d7a40d348a3daba263a2b1c0aa41910710) |
+| [mlx-community/Qwen2-VL-2B-mlx](https://huggingface.co/mlx-community/Qwen2-VL-2B-mlx) | [d8c7c767e2e2](https://huggingface.co/mlx-community/Qwen2-VL-2B-mlx/tree/d8c7c767e2e2c62cda8a51943276458ea6ad43bc) |
+| [mlx-community/gemma-3-12b-it-4bit](https://huggingface.co/mlx-community/gemma-3-12b-it-4bit) | [86cc6a8dedbc](https://huggingface.co/mlx-community/gemma-3-12b-it-4bit/tree/86cc6a8dedbc456dd0e4af01a9d09f396f77e558) |
+| [mlx-community/Qwen3.8-27B-4bit](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit) | [10c35caafbb8](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit/tree/10c35caafbb80f7dc6a7a432cdd11af10a6d4818) |
+| [mlx-community/gemma-4-31b-it-4bit](https://huggingface.co/mlx-community/gemma-4-31b-it-4bit) | [696d436c4047](https://huggingface.co/mlx-community/gemma-4-31b-it-4bit/tree/696d436c404745a59f30e4939a658162b0a9e57f) |
+| [mlx-community/gpt-oss-20b-MXFP4-Q8](https://huggingface.co/mlx-community/gpt-oss-20b-MXFP4-Q8) | [773a7da77e56](https://huggingface.co/mlx-community/gpt-oss-20b-MXFP4-Q8/tree/773a7da77e569019bb0fd17a554b263738d669a3) |
+| [prism-ml/Ternary-Bonsai-2-27B-mlx-2bit](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-mlx-2bit) | [3f926b415992](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-mlx-2bit/tree/3f926b415992eaa2ae9dd7b573706494d6bbf787) |
+| [mlx-community/SmolVLM-Instruct-bf16](https://huggingface.co/mlx-community/SmolVLM-Instruct-bf16) | [cae61cdedd06](https://huggingface.co/mlx-community/SmolVLM-Instruct-bf16/tree/cae61cdedd0602419b43b6102dc33cd9f1e929a6) |
+| [mlx-community/SmolVLM-500M-Instruct-bf16](https://huggingface.co/mlx-community/SmolVLM-500M-Instruct-bf16) | [436121330f36](https://huggingface.co/mlx-community/SmolVLM-500M-Instruct-bf16/tree/436121330f361cc3ccde4546fcccc0ec8711bc01) |
+| [mlx-community/SmolVLM-256M-Instruct-bf16](https://huggingface.co/mlx-community/SmolVLM-256M-Instruct-bf16) | [cfe179333719](https://huggingface.co/mlx-community/SmolVLM-256M-Instruct-bf16/tree/cfe17933371986666073f450510d9e40d6157b13) |
+| [aac6fef/laya-mlx](https://huggingface.co/aac6fef/laya-mlx) | [20aed815fc6a](https://huggingface.co/aac6fef/laya-mlx/tree/20aed815fc6acde75733882e7ec0e3f28aeb9717) |

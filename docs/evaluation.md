@@ -1,98 +1,32 @@
-# Text evaluation
+# Evaluating a model
 
-Run the labeled smoke tests against a local model with a driver:
-
-```sh
-python3 scripts/evaluate.py --model /path/to/model.mlpackage \
-  --driver /path/to/model-driver
-```
-
-A driver receives `--model PATH`, loads that model once, then reads JSON Lines
-from stdin and writes one response per request to stdout, in order. Send logs
-to stderr. The command can include arguments, for example
-`--driver python3 /path/to/driver.py`. No network or model downloads are performed
-by the harness. The driver is responsible for its own inference implementation.
-The package includes a native Swift driver; see below.
-
-Requests contain `state` and a `questions` object. Responses identify `model`
-and contain an `answers` object with matching question IDs. Each answer has
-`type` and the corresponding fields:
-
-- `choice`: selected candidate ID and a `probabilities` object keyed by candidate ID.
-- `noul`: a `noul` probability between zero and one.
-- `score`: expected zero-based `score` and `probabilities` keyed by level index (`"0"`, `"1"`, …).
-
-Use unrounded probabilities. This is a small evaluation protocol; it does not
-establish full compatibility with any hosted API.
-
-The default fixtures test food recognition, classification, and sentiment.
-They are smoke tests, not food-safety advice or a model quality benchmark.
-Use `--cases PATH` for a JSON array of custom fixtures in the same format as
-`fixtures/text-cases.json`. Candidate order is retained. Each question needs an
-expectation: `choice` for classification, or inclusive `min`/`max` for a probability
-or ordinal score.
-
-The runner checks response types, finite probabilities, normalization, selection,
-and score consistency before checking labels. It prints a JSON report and exits
-with `0` when the accuracy target is met, `1` for incorrect answers, or `2` for
-invalid inputs, driver failures, malformed output, or timeouts. All cases must pass
-by default; `--min-accuracy 0.9` sets an explicit alternative. `--timeout 300`
-limits the complete run in seconds. Put driver arguments last.
-
-Run the standard-library harness tests with `python3 -m unittest discover -s scripts -p 'test_evaluate.py'`. The full `test_*.py` suite also requires the [conversion dependencies](conversion.md#environment).
-Model conversion parity and runtime performance require separate evaluation.
-Keep weights, conversion environments, and generated reports under `.local/`
-or the ignored `models/` and `reports/` directories.
-
-## Native Swift driver
-
-Build the actual runtime driver and run the same labeled cases:
+Build the MLX driver with Xcode so its Metal shaders are available:
 
 ```sh
-swift build -c release
-python3 scripts/evaluate.py --model /path/to/prepared.mlpackage \
-  --driver .build/release/swev
+xcodebuild -scheme swev -configuration Release \
+  -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath .local/mlx-build \
+  -skipMacroValidation -skipPackagePluginValidation build
+
+python3 scripts/evaluate.py \
+  --model mlx-community/SmolVLM-500M-Instruct-bf16 \
+  --driver .local/mlx-build/Build/Products/Release/swev
 ```
 
-The driver uses CPU-only Core ML and native tokenization. It accepts a text-only
-decision API subset, preserves object order, rejects duplicate keys, and checks any
-supplied model ID. Score wire requests allow 2–32 levels, further limited by the
-asset. Images and remote URLs are not fetched. Hosted API parity, extended wire
-metadata, and legacy rounded answers are outside this codec's scope.
+The driver loads once, reads JSON Lines requests from stdin, and emits one response per request. Use a local model directory in place of the Hub ID to avoid downloads. Logs go to stderr. The Swift API and benchmark example also accept images; the stdin CLI is text-only.
 
-## Opt-in model integration tests
+The default fixtures cover food recognition, classification, and sentiment. They are smoke tests, not food-safety advice or a comprehensive quality benchmark. Pass `--cases PATH` for a JSON array of fixtures in the format used by `fixtures/text-cases.json`.
 
-Set `SWEV_TEST_MANIFEST` to a local JSON file:
+Each fixture contains `id`, `request`, and `expected`. Expectations use `choice` for a selected option, or inclusive `min`/`max` bounds for noul and score. The harness checks response types, finite normalized probabilities, option order, and consistency between a score/choice and its distribution before checking correctness.
 
-```json
-{
-  "tokenizers": [{"path": "/path/to/tokenizer.json", "reference": "/path/to/token-tests.json"}],
-  "adapters": [{"tokenizer": "/path/to/tokenizer.json", "recipe": "/path/to/recipe.json", "reference": "/path/to/adapter-tests.json"}],
-  "models": [{"path": "/path/to/model.mlpackage", "reference": "/path/to/probabilities.json"}]
-}
+All cases must pass by default. Use `--min-accuracy 0.9` to choose another threshold. Exit codes are 0 for meeting the threshold, 1 for incorrect answers, and 2 for invalid input, driver failure, malformed output, or timeout. `--timeout 300` bounds the complete run. Pass `--max-context-tokens N` before `--driver` when a model needs an explicit context limit. Put the driver command last.
+
+Run harness unit tests without model downloads:
+
+```sh
+python3 -m unittest discover -s scripts -p 'test_evaluate.py'
 ```
 
-Run `SWEV_TEST_MANIFEST=/path/to/manifest.json swift test`. All source-model fixtures
-are external to the repository. Tokenizer references contain `text` and `ids`;
-adapter references contain `request`, `ids`, and `options`. Model references are an
-array containing `probabilities` per row, in the order of the 17 text cases.
-Probabilities must already include the source model's calibration.
+For full suites, `Examples/Benchmark` reads JSON Lines cases containing `id`, `request`, and an optional local `image` path. It records loading separately and excludes per-request warmup from inference latency. See [benchmark instructions](mlx.md#reproduce-a-benchmark) and [measurement guidance](performance.md).
 
-Ordinary `swift test` skips the three model-dependent tests and uses synthetic
-unit fixtures. Full release parity needs a larger, independently frozen suite.
-
-## Opt-in image integration tests
-
-Set `SWEV_IMAGE_TEST_MANIFEST` to a local JSON file containing `model`,
-`preprocessing`, `cases`, and `textReference` paths, plus an optional output
-`report` path. `preprocessing` is the package's preprocessing JSON. Each image
-case contains a request, an image filename, a `pixels` filename, and source
-`probabilities`. Image and pixel paths are relative to the cases file. Pixel
-references are little-endian Float32 RGB tensors in NHWC order. Text references
-contain requests and probabilities for checking requests without an image.
-
-Run `SWEV_IMAGE_TEST_MANIFEST=/path/to/manifest.json swift test --filter image`.
-These checks compare preprocessing tensors and native inference to source
-references. Semantic accuracy is evaluated separately; source-model mistakes
-must not be hidden by changing parity expectations. Default tests generate tiny
-synthetic images to check padding, transparency, content types, and EXIF rotation.
+Changes to model math or preprocessing need source-runtime parity at relevant lengths and modalities, as well as labeled checks. `RuntimeParityTests` is opt-in through `SWEV_TEST_MLX`, `SWEV_ENCODER_MODEL`, and `SWEV_ENCODER_PARITY`; use an existing checkpoint and a JSON array of source fixtures containing `state`, `questions`, `tokens`, `markers`, `type` (0/1/2), and `logits`. The test compares the Swift token layout and raw logits against these references. Ordinary unit tests require no weights or credentials. Keep generated fixtures and reports outside Git.

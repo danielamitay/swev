@@ -1,30 +1,40 @@
 import Foundation
 import Swev
 
-/// Downloads a compatible package once and runs a text or single-image decision.
+/// Loads an ordinary MLX model once and runs a text or single-image decision.
 @main
 struct Decisions {
     static func main() async {
         var arguments = Array(CommandLine.arguments.dropFirst())
-        let cpuOnly = arguments.first == "--cpu-only"
-        if cpuOnly { arguments.removeFirst() }
+        let usage = "Usage: Decisions MODEL_ID_OR_DIRECTORY [IMAGE.png|IMAGE.jpg] [--max-context-tokens N]"
         if arguments == ["--help"] {
-            print("Usage: Decisions [--cpu-only] OWNER/REPO MODEL.mlpackage [IMAGE.png|IMAGE.jpg]")
+            print(usage)
             return
         }
         do {
-            guard (2...3).contains(arguments.count) else {
-                throw SwevError.invalidRequest("Usage: Decisions [--cpu-only] OWNER/REPO MODEL.mlpackage [IMAGE.png|IMAGE.jpg]")
+            var contextLimit: Int?
+            if arguments.count >= 2, arguments[arguments.count - 2] == "--max-context-tokens" {
+                guard let value = Int(arguments.last!), value > 0 else {
+                    throw SwevError.invalidRequest("--max-context-tokens requires a positive integer")
+                }
+                contextLimit = value
+                arguments.removeLast(2)
             }
-            FileHandle.standardError.write(Data("Loading model; the first run downloads the package before Core ML compilation.\n".utf8))
-            let model = try await SwevModel.load(
-                from: HuggingFaceModel(repository: arguments[0], package: arguments[1]),
-                configuration: .init(computeUnits: cpuOnly ? .cpuOnly : .cpuAndGPU)
-            )
+            guard (1...2).contains(arguments.count) else {
+                throw SwevError.invalidRequest(usage)
+            }
+            FileHandle.standardError.write(Data("Loading model; the first Hub load downloads its weights.\n".utf8))
+            let location = URL(fileURLWithPath: arguments[0])
+            let model: SwevModel
+            if FileManager.default.fileExists(atPath: location.path) || arguments[0].hasPrefix("/") || arguments[0].hasPrefix(".") {
+                model = try await SwevModel.load(url: location, maxContextTokens: contextLimit)
+            } else {
+                model = try await SwevModel.load(hf: arguments[0], maxContextTokens: contextLimit)
+            }
             let response: DecisionResponse
-            if arguments.count == 3 {
+            if arguments.count == 2 {
                 guard model.descriptor.capabilities.supportsImages else { throw SwevError.unsupportedModality }
-                let imageURL = URL(fileURLWithPath: arguments[2])
+                let imageURL = URL(fileURLWithPath: arguments[1])
                 let contentType: String
                 switch imageURL.pathExtension.lowercased() {
                 case "png": contentType = "image/png"

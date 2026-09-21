@@ -1,16 +1,16 @@
-![Swev — typed decisions, locally in Swift with Core ML. State and questions become choices, scores, and probabilities.](docs/assets/swev-header.png)
+![Swev — typed decisions, locally in Swift. State and questions become choices, scores, and probabilities.](docs/assets/swev-header-mlx.png)
 
-**Jev-style typed decisions, locally in Swift with Core ML.**
+**Jev-style typed decisions, locally in Swift with MLX.**
 
-Swev is a Swift package for running typed decision models locally with Core ML—text or images in, choices, scores, and probabilities out.
+Swev is a Swift package for running typed decision models locally with MLX—text or images in, choices, scores, and probabilities out.
 
 Define the question and possible answers in your app. Swev scores those answers and returns typed Swift values, without generating text or asking a model to format JSON. Use it to route requests, classify content, rank urgency, or ask questions about an image.
 
-- **Local inference.** Inputs stay on-device. No inference API, Python runtime, or third-party runtime dependencies.
+- **Local inference.** Inputs stay on-device. No inference API or Python runtime. Model execution uses `mlx-swift-lm`.
 - **Questions defined at runtime.** Choose among your own options, score an ordered scale, or request a probability of true.
-- **One self-contained model package.** Tokenizer, formatting, and scoring settings travel with the weights. Image-capable packages include a text route that skips vision computation when no image is supplied.
+- **Ordinary MLX models.** Load supported Hugging Face repositories or local model directories. No Swev export is required; text-only requests skip vision encoding.
 
-**Swift 6 · macOS 15+ · iOS 18+ · MIT license**
+**Swift 6.3 · macOS 15+ · iOS 18+ · MIT license**
 
 [Quickstart](#quickstart) · [Models](#models) · [Image input](#image-input) · [Documentation](#documentation)
 
@@ -19,7 +19,7 @@ Define the question and possible answers in your app. Swev scores those answers 
 Add `https://github.com/danielamitay/swev` in Xcode’s **Add Package Dependencies**, or use Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/danielamitay/swev.git", branch: "main")
+.package(url: "https://github.com/danielamitay/swev.git", branch: "mlx")
 ```
 
 Add `.product(name: "Swev", package: "swev")` to your target’s dependencies.
@@ -30,11 +30,7 @@ Load a compatible model from Hugging Face and ask a question from an `async` thr
 import Swev
 
 let model = try await SwevModel.load(
-    from: HuggingFaceModel(
-        repository: "danielamitay/gemma-4-e2b-it-lut4-g8-swev",
-        package: "gemma-4-e2b-it-lut4-g8-swev-l4096-k16.mlpackage"
-    ),
-    configuration: .init(computeUnits: .cpuAndGPU)
+    hf: "mlx-community/SmolVLM-500M-Instruct-bf16"
 )
 
 let response = try await model.predict(
@@ -57,17 +53,17 @@ print(answer.choice)        // Selected option ID
 print(answer.probabilities) // Probability for every option
 ```
 
-The first load downloads the package. Subsequent loads reuse the local download cache; keep the model instance alive to avoid recompiling and initializing it for every request. Once downloaded, inference works offline. You can also load a local package with `SwevModel.load(from: modelURL)`.
+The first load downloads the model; subsequent loads reuse the Hugging Face cache. Keep the model instance alive for repeated predictions. To load a local model directory without downloading:
 
-**Try it without creating an app:** clone this repository and run the [complete command-line example](Examples/README.md) on macOS:
+```swift
+import Foundation
 
-```sh
-swift run --package-path Examples/Decisions -c release Decisions \
-  danielamitay/gemma-4-e2b-it-lut4-g8-swev \
-  gemma-4-e2b-it-lut4-g8-swev-l4096-k16.mlpackage
+let model = try await SwevModel.load(
+    url: URL(fileURLWithPath: "/path/to/model-directory")
+)
 ```
 
-The first run downloads about 2.44 GB. The example asks three text questions; append an image path to try vision instead.
+Build with Xcode so MLX's Metal shaders are compiled. See the [MLX setup and command-line quickstart](docs/mlx.md) for a runnable example.
 
 ## Three question types
 
@@ -97,41 +93,41 @@ State and instructions accept strings or structured `JSONValue` data. Questions 
 
 ## Models
 
-Browse the [Swev collection on Hugging Face](https://huggingface.co/collections/danielamitay/swev-6ab07cfe05f6ef97171a04e4). These exports bundle everything Swev needs. To switch models, change the repository and package name in the quickstart. Each repository contains `<repository-name>-l4096-k16.mlpackage`.
+These checkpoints were evaluated through the same Swev API on all **231 public JevBench cases**. Load their Hugging Face IDs directly; no Swev export is required. Results measure direct candidate scoring, with no generated reasoning or answer text.
 
-| Model | Size (disk) | Precision | CPU latency (mean) | JevBench accuracy | Vision? |
+| Model | Size (disk) | Precision | Latency (mean) | JevBench accuracy | Vision? |
 | --- | ---: | --- | ---: | ---: | :---: |
-| [Gemma 4 E2B IT · FP32](https://huggingface.co/danielamitay/gemma-4-e2b-it-fp32-swev) | 19.16 GB | FP32 | 2.76 s | 63.2% | Yes |
-| [Gemma 4 E2B IT · LUT4](https://huggingface.co/danielamitay/gemma-4-e2b-it-lut4-g8-swev) | 2.44 GB | 4-bit palette, group 8 | 6.66 s | 65.4% | Yes |
-| [Gemma 4 E2B IT · LUT8](https://huggingface.co/danielamitay/gemma-4-e2b-it-lut8-tensor-swev) | 4.82 GB | 8-bit palette, per tensor | 4.34 s | 62.8% | Yes |
-| [SmolVLM 500M Instruct](https://huggingface.co/danielamitay/smolvlm-500m-instruct-fp32-swev) | 2.04 GB | FP32 | 1.61 s | 42.4% | Yes |
-| [Kev 0.5B](https://huggingface.co/danielamitay/kev-0.5b-fp32-swev) | 1.99 GB | FP32 | 1.46 s | 49.8% | No |
-| [Kev 0.6B](https://huggingface.co/danielamitay/kev-0.6b-fp32-swev) | 2.40 GB | FP32 | 2.24 s | 60.6% | No |
-| [Kev 4B](https://huggingface.co/danielamitay/kev-4b-fp32-swev) | 16.11 GB | FP32 | 12.14 s | 66.7% | No |
-| [Laya EN](https://huggingface.co/danielamitay/laya-en-fp32-swev) | 1.69 GB | FP32 | 1.56 s | 55.8% | No |
+| [Gemma 4 31B IT](https://huggingface.co/mlx-community/gemma-4-31b-it-4bit) | 18.44 GB | INT4 | 4.51 s | 91.3% | Yes |
+| [Qwen3.8 27B](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit) | 16.08 GB | INT4 | 3.62 s | 85.3% | Yes |
+| [Ternary Bonsai 2 27B](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-mlx-2bit) | 8.61 GB | 2-bit | 3.96 s | 84.4% | Yes |
+| [Muse Glimmer 30B](https://huggingface.co/mlx-community/Muse-Glimmer-30B-4bit) | 19.44 GB | INT4 | 3.67 s | 83.1% | Yes |
+| [GPT-OSS 20B](https://huggingface.co/mlx-community/gpt-oss-20b-MXFP4-Q8) | 12.10 GB | MXFP4 + INT8 | 743 ms | 72.7% | No |
+| [Gemma 3 12B IT](https://huggingface.co/mlx-community/gemma-3-12b-it-4bit) | 8.07 GB | INT4 | 2.28 s | 69.3% | Yes |
+| [Laya 421M](https://huggingface.co/aac6fef/laya-mlx) | 0.85 GB | FP16 | 23 ms† | 48.9%† | No |
+| [Qwen2-VL 2B](https://huggingface.co/mlx-community/Qwen2-VL-2B-mlx) | 4.43 GB | BF16 | 240 ms | 48.1% | Yes |
+| [SmolVLM 500M Instruct](https://huggingface.co/mlx-community/SmolVLM-500M-Instruct-bf16) | 1.02 GB | BF16 | 76 ms | 45.0% | Yes |
+| [SmolVLM 2.2B Instruct](https://huggingface.co/mlx-community/SmolVLM-Instruct-bf16) | 4.50 GB | BF16 | 275 ms | 44.6% | Yes |
+| [SmolVLM 256M Instruct](https://huggingface.co/mlx-community/SmolVLM-256M-Instruct-bf16) | 0.52 GB | BF16 | 37 ms | 33.3% | Yes |
 
-**Compute policy:** the quickstart uses CPU+GPU. Use `.cpuOnly` for Gemma FP32 (Metal crash) and Kev 4B (no meaningful speedup and excessive memory at the largest GPU context). See [compute policy and measured latency](docs/performance.md) before switching packages.
+**Measurements:** Apple M4 Max with 128 GiB memory, Swift/MLX on the GPU. Requests run sequentially with one excluded warmup per case. Latency includes prompt preparation, tokenization, and inference; it excludes loading and file I/O. Accuracy uses the [pinned public JevBench suite](https://github.com/fstandhartinger/jevbench/tree/275763201a29d6083d4ee1431d709c296ef81281), not the official full leaderboard. Rejected requests count as incorrect. See [methodology and checkpoint revisions](docs/performance.md).
 
-SmolVLM requires the tokenizer support in Swev commit [`4213de1`](https://github.com/danielamitay/swev/commit/4213de175031723f43b500820af1ad48db6baab4) or later. Use the latest `main` when loading it.
+† Laya returned valid responses for 174/231 cases; its declared context and question-field budgets rejected 57. Its latency averages successful requests only. All other models returned valid responses for all 231 cases.
 
-All eight exports support **4,096 text tokens**, **16 answer options per question**, and **64 questions per request**. Context includes the state, question, options, and formatting; per-field limits also apply. Shorter requests use smaller context buckets. Gemma and SmolVLM image routes have a separate **256-token** budget, including 64 image tokens. Oversized requests throw rather than silently truncate.
+Gemma 3’s checkpoint omits its context declaration, so load it with an explicit bound:
 
-All models were tested against **231 public JevBench cases**. SmolVLM answered 230; one prompt required 4,104 tokens and exceeded its context limit. Every other model answered all 231. Accuracy counts the unanswered case as incorrect; latency averages successful predictions and excludes loading and warmup. Runs occurred under different background system loads, so the timings are not controlled speed comparisons.
+```swift
+let model = try await SwevModel.load(
+    hf: "mlx-community/gemma-3-12b-it-4bit", maxContextTokens: 131_072
+)
+```
 
-<details>
-<summary>Measurement details and precision</summary>
+“Vision” means image requests were exercised separately; JevBench accuracy here is text-only. Sizes are approximate decimal GB of repository files, not runtime memory. Precision describes stored weights; INT4 is affine integer quantization. Model quality and speed depend on the workload and device.
 
-Accuracy is correct answers divided by all [231 public cases](https://github.com/fstandhartinger/jevbench/tree/275763201a29d6083d4ee1431d709c296ef81281). These are text-only public-subset results, not the official 534-case leaderboard, and do not measure vision quality.
-
-Latency is one serial pass on an Apple M4 Max with 128 GiB RAM, using Swift/Core ML CPU-only. It includes tokenization and inference, excludes model loading and per-bucket warmup, and groups requests by context size. Cold loads and switching context buckets can add latency. For a separate CPU/GPU comparison and compatibility notes, see [compute policy](docs/performance.md). iOS devices need their own validation.
-
-Sizes are decimal GB on disk, not runtime memory requirements. Palette exports compress weights while retaining FP32 computation; they do not use NVFP4/NVFP8 arithmetic. These models are Apache 2.0; source checkpoints and conversion details are linked in their model cards.
-
-</details>
+Swev allows 26 answer options per question, 64 questions per request, and one image. Context and field limits depend on the checkpoint; oversized input is rejected rather than truncated. See [runtime compatibility and limits](docs/mlx.md).
 
 ## Image input
 
-Use any Gemma or SmolVLM package above for text alone or text plus one PNG/JPEG. With the same `model` from the quickstart:
+Models marked “Vision” accept text alone or text plus one PNG/JPEG. With the same `model` from the quickstart:
 
 ```swift
 import Foundation
@@ -150,17 +146,14 @@ let response = try await model.predict(
 print(try response.choice("scene").choice)
 ```
 
-For JPEG bytes, use `image/jpeg`. You can check `model.descriptor.capabilities.supportsImages` before attaching an image. Gemma exports fit images to a 384 × 384 canvas; SmolVLM uses 512 × 512. Both use one fitted image rather than multiple crops. Text-only requests skip the vision encoder; audio, video, and multiple images are not supported.
+For JPEG bytes, use `image/jpeg`. You can check `model.descriptor.capabilities.supportsImages` before attaching an image. MLX handles model-specific resizing, normalization, and image tiling. Text-only requests skip the vision encoder; audio, video, and multiple images are not supported.
 
 ## Documentation
 
-- [Using Swev in an app](docs/usage.md) — structured state, typed answers, concurrency, and error handling.
-- [Loading and caching](docs/huggingface.md) — revisions, offline use, private repositories, and cache policies.
-- [Model support](docs/models.md) — capabilities, image processing, limits, and runtime behavior.
-- [Converting models](docs/conversion.md) — export, package, compress, and validate compatible models.
-- [Package schema](docs/schema.md) — versioned metadata, tokenizers, and inference contracts.
-- [Evaluation](docs/evaluation.md) — run labeled cases and source-parity checks against your own model.
-- [Runnable examples](Examples/README.md) — try text or image decisions from the command line.
+- [MLX usage, loading, and limits](docs/mlx.md) — Hub/local loading, images, runtime compatibility, and runnable commands.
+- [Benchmark runner](Examples/Benchmark) — sequential evaluation with loading and warmup excluded from inference timing.
 - [Contributing](CONTRIBUTING.md) — development setup, repository map, tests, and pull requests.
+
+See [model compatibility](docs/models.md), [configuration formats](docs/schema.md), and [evaluation](docs/evaluation.md) for runtime details and validation.
 
 Run `swift test` for the package tests. Model weights and generated reports stay outside Git. Swev is [MIT-licensed](LICENSE); model licenses are listed separately in their releases.

@@ -68,6 +68,19 @@ class EvaluationTests(unittest.TestCase):
             driver.write_text("import time\ntime.sleep(5)\n")
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 2)
 
+    def test_hub_id_and_context_reach_driver_unchanged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases = root / "cases.json"
+            cases.write_text(json.dumps([self.case]))
+            driver = root / "driver.py"
+            driver.write_text("import sys\nassert sys.argv[1:] == ['--model', 'example/model', '--max-context-tokens', '4096']\n"
+                              + "for line in sys.stdin:\n    print(" + repr(json.dumps(self.response)) + ")\n")
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name("evaluate.py")),
+                "--model", "example/model", "--max-context-tokens", "4096", "--cases", str(cases),
+                "--driver", sys.executable, str(driver)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
