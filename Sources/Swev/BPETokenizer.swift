@@ -20,6 +20,8 @@ struct BPETokenizer {
     private let addedByText: [String: Added]
     private let split: NSRegularExpression?
     private let spaceMarker: String?
+    private let normalizeNFC: Bool
+    private let digitSplit: NSRegularExpression?
     private let bytes: [String]
 
     static let byteLevelPattern = #"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"#
@@ -27,11 +29,13 @@ struct BPETokenizer {
     init(data: Data) throws {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               root["version"] as? String == "1.0",
-              let normalizer = root["normalizer"] as? [String: Any],
               let model = root["model"] as? [String: Any], model["type"] as? String == "BPE",
               let rawVocabulary = model["vocab"] as? NSDictionary,
               let sourceMerges = model["merges"] as? [Any],
               let pre = root["pre_tokenizer"] as? [String: Any] else { throw SwevError.unsupportedTokenizer }
+        guard root["normalizer"] is NSNull || root["normalizer"] is [String: Any] else { throw SwevError.unsupportedTokenizer }
+        let normalizer = root["normalizer"] as? [String: Any] ?? [:]
+        let identityNormalization = root["normalizer"] is NSNull
         var merges = sourceMerges
         var vocabulary: [Data: Int] = [:]
         if normalizer["type"] as? String == "Replace" {
@@ -57,7 +61,7 @@ struct BPETokenizer {
             }
         }
         let marker: String?
-        if normalizer["type"] as? String == "NFC" {
+        if identityNormalization || normalizer["type"] as? String == "NFC" {
             marker = nil
             guard model["unk_token"] == nil || model["unk_token"] is NSNull else { throw SwevError.unsupportedTokenizer }
             for key in ["fuse_unk", "byte_fallback"] {
@@ -82,17 +86,24 @@ struct BPETokenizer {
             value["type"] as? String == "ByteLevel" && value["add_prefix_space"] as? Bool == false && value["use_regex"] as? Bool == regex
         }
         let pattern: String?
+        var splitDigits = false
         if marker != nil {
             pattern = nil
         } else if byteLevel(pre, regex: true) {
             pattern = Self.byteLevelPattern
         } else {
-            guard pre["type"] as? String == "Sequence", let stages = pre["pretokenizers"] as? [[String: Any]], stages.count == 2,
-                  stages[0]["type"] as? String == "Split", stages[0]["behavior"] as? String == "Isolated",
-                  stages[0]["invert"] as? Bool == false,
-                  let configured = (stages[0]["pattern"] as? [String: String])?["Regex"], configured.utf8.count <= 2048,
-                  byteLevel(stages[1], regex: false) else { throw SwevError.unsupportedTokenizer }
-            pattern = configured
+            guard pre["type"] as? String == "Sequence", let stages = pre["pretokenizers"] as? [[String: Any]], stages.count == 2 else { throw SwevError.unsupportedTokenizer }
+            if stages[0]["type"] as? String == "Digits", stages[0]["individual_digits"] as? Bool == true,
+               byteLevel(stages[1], regex: true) {
+                splitDigits = true
+                pattern = Self.byteLevelPattern
+            } else {
+                guard stages[0]["type"] as? String == "Split", stages[0]["behavior"] as? String == "Isolated",
+                      stages[0]["invert"] as? Bool == false,
+                      let configured = (stages[0]["pattern"] as? [String: String])?["Regex"], configured.utf8.count <= 2048,
+                      byteLevel(stages[1], regex: false) else { throw SwevError.unsupportedTokenizer }
+                pattern = configured
+            }
         }
         var ranks: [Pair: Int] = [:]
         for (rank, merge) in merges.enumerated() {
@@ -120,6 +131,8 @@ struct BPETokenizer {
         self.normalizedAdded = try regex(added.filter(\.normalized))
         self.split = try pattern.map { try NSRegularExpression(pattern: $0) }
         self.spaceMarker = marker
+        self.normalizeNFC = normalizer["type"] as? String == "NFC"
+        self.digitSplit = splitDigits ? try NSRegularExpression(pattern: #"\p{Nd}|[^\p{Nd}]+"#) : nil
         var mapping = Array(repeating: "", count: 256)
         var extra = 0
         for byte in 0..<256 {
@@ -127,9 +140,9 @@ struct BPETokenizer {
             mapping[byte] = String(UnicodeScalar(visible ? byte : 256 + extra)!)
             if !visible { extra += 1 }
         }
-        if marker == nil {
-            guard mapping.enumerated().allSatisfy({ [192, 193].contains($0.offset) || $0.offset >= 245 || vocabulary[Data($0.element.utf8)] != nil }) else { throw SwevError.unsupportedTokenizer }
-        } else {
+        // Pruned byte-level vocabularies may omit unused standalone bytes. Encoding
+        // still rejects any piece that cannot be represented after BPE merges.
+        if marker != nil {
             guard (0..<256).allSatisfy({ vocabulary[Data(String(format: "<0x%02X>", $0).utf8)] != nil }) else { throw SwevError.unsupportedTokenizer }
         }
         self.bytes = mapping
@@ -147,7 +160,7 @@ struct BPETokenizer {
             if let marker = spaceMarker {
                 normalized = raw.unicodeScalars.map { scalar -> String in scalar.value == 32 ? marker : String(scalar) }.joined()
             } else {
-                normalized = raw.precomposedStringWithCanonicalMapping
+                normalized = normalizeNFC ? raw.precomposedStringWithCanonicalMapping : raw
             }
             return try extract(normalized, regex: normalizedAdded, plain: encodePlain)
         }
@@ -249,6 +262,15 @@ struct BPETokenizer {
     }
 
     private func encodePlain(_ text: String) throws -> [Int] {
+        guard let digitSplit else { return try encodePieces(text) }
+        // Apply Digits before ByteLevel so spaces cannot merge into digit tokens.
+        let string = text as NSString
+        return try digitSplit.matches(in: text, range: NSRange(location: 0, length: string.length)).flatMap {
+            try encodePieces(string.substring(with: $0.range))
+        }
+    }
+
+    private func encodePieces(_ text: String) throws -> [Int] {
         let string = text as NSString
         var result: [Int] = []
         var offset = 0

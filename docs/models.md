@@ -23,9 +23,11 @@ profile; arbitrary packages are not automatically compatible.
 - `swev.provenance`: optional source identity and conversion information.
 
 The tokenizer reads BPE vocabulary, merges, special tokens, and pre-tokenization
-settings from the embedded tokenizer document. It supports NFC byte-level BPE
-with standard ByteLevel splitting or an isolated regex Split followed by
-ByteLevel without regex. It also supports Unicode BPE with literal space-marker
+settings from the embedded tokenizer document. It supports byte-level BPE with
+NFC or no normalization, using standard ByteLevel splitting, individual Digits
+followed by ByteLevel, or an isolated regex Split followed by ByteLevel without
+regex. Pruned byte vocabularies are accepted, but unrepresentable input throws
+rather than silently dropping characters. It also supports Unicode BPE with literal space-marker
 replacement and UTF-8 byte fallback. Vocabulary keys preserve exact Unicode
 scalar sequences. Unsupported tokenizer features fail explicitly.
 

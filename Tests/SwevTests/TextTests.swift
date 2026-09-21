@@ -284,3 +284,48 @@ private func syntheticTokenizer() -> [String: Any] {
     let request = try DecisionCodec.decodeRequest(Data(json.utf8))
     #expect(request.questions[0].optionCount == 16)
 }
+
+@Test func identityNormalizationAndIndividualDigits() throws {
+    var root = syntheticTokenizer()
+    root["normalizer"] = NSNull()
+    var model = root["model"] as! [String: Any]
+    var vocabulary = model["vocab"] as! [String: Int]
+    vocabulary["12"] = 257
+    vocabulary["Ġ1"] = 258
+    vocabulary["ĠÂ"] = 259
+    vocabulary["ĠÂ²"] = 260
+    model["vocab"] = vocabulary
+    model["merges"] = [["h", "i"], ["1", "2"], ["Ġ", "1"], ["Ġ", "Â"], ["ĠÂ", "²"]]
+    root["model"] = model
+    let plain = try BPETokenizer(data: JSONSerialization.data(withJSONObject: root))
+    #expect(try plain.encode("12") == [257])
+    #expect(try plain.encode(" 1") == [258])
+    #expect(try plain.encode("e\u{301}") == [101, 204, 129])
+    #expect(try plain.encode("é") == [195, 169])
+    let byteLevel = root["pre_tokenizer"]!
+    root["pre_tokenizer"] = ["type": "Sequence", "pretokenizers": [
+        ["type": "Digits", "individual_digits": true], byteLevel
+    ]]
+    let digits = try BPETokenizer(data: JSONSerialization.data(withJSONObject: root))
+    #expect(try digits.encode("hi 12.3") == [256, 32, 49, 50, 46, 51])
+    #expect(try digits.encode("١٢") == [217, 161, 217, 162])
+    #expect(try digits.encode(" ²") == [260]) // Digits isolates decimal digits, not every numeric category.
+    #expect(try digits.encode("hi  [MASK]12") == [256, 300, 49, 50])
+    #expect(try digits.encode("e\u{301}") == [101, 204, 129])
+    root["pre_tokenizer"] = ["type": "Sequence", "pretokenizers": [
+        ["type": "Digits", "individual_digits": false], byteLevel
+    ]]
+    #expect(throws: SwevError.unsupportedTokenizer) { try BPETokenizer(data: JSONSerialization.data(withJSONObject: root)) }
+}
+
+@Test func prunedByteVocabularyRejectsUnrepresentableInput() throws {
+    var root = syntheticTokenizer()
+    var model = root["model"] as! [String: Any]
+    var vocabulary = model["vocab"] as! [String: Int]
+    vocabulary.removeValue(forKey: "x")
+    model["vocab"] = vocabulary
+    root["model"] = model
+    let tokenizer = try BPETokenizer(data: JSONSerialization.data(withJSONObject: root))
+    #expect(try tokenizer.encode("hi") == [256])
+    #expect(throws: SwevError.unsupportedTokenizer) { try tokenizer.encode("x") }
+}
