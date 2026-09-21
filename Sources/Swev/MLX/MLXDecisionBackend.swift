@@ -156,7 +156,7 @@ final class MLXDecisionBackend: DecisionRuntime {
                 let logits: MLXArray
                 switch try context.model.prepare(input, cache: cache, state: nil, prefill: .init(stepSize: 512, chunking: .remainder)) {
                 case .tokens(let remaining):
-                    logits = context.model(remaining, cache: cache, state: nil).logits
+                    logits = context.model(try remaining.batchedForDecisionForward(), cache: cache, state: nil).logits
                 case .logits(let output):
                     logits = output.logits
                 }

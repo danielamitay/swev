@@ -58,6 +58,7 @@ actor EncoderDecisionBackend: DecisionRuntime {
         let agent = try JSONDecoder().decode(AgentConfiguration.self, from: Data(contentsOf: directory.appendingPathComponent("rl_agent_config.json")))
         let encoder = try ModernDecisionEncoder(configuration: Data(contentsOf: directory.appendingPathComponent("encoder/config.json")),
             headLayers: agent.head_layers, weightsURL: directory.appendingPathComponent("model.safetensors"))
+        try Task.checkCancellation()
         return EncoderDecisionBackend(id: id, revision: revision, maximum: maximum, head: head, temperatures: temperatures,
             buckets: buckets, tokenizer: tokenizer, cls: cls, sep: sep, marker: marker, maskText: maskText, encoder: encoder)
     }
@@ -80,6 +81,7 @@ actor EncoderDecisionBackend: DecisionRuntime {
                 maskText: maskText, headLimit: headLimit, contextLimit: maxContextTokens,
                 encode: { tokenizer.encode(text: $0, addSpecialTokens: false) })
             let raw = try encoder.logits(tokens: prepared.tokens, markers: prepared.markers, questionType: prepared.typeIndex)
+            try Task.checkCancellation()
             let size = question.optionCount <= 2 ? "2" : question.optionCount <= 5 ? "3-5" : question.optionCount <= 10 ? "6-10" : "11+"
             let temperature = buckets[question.type.rawValue + ":" + size] ?? temperatures[prepared.typeIndex]
             answers.append(try Postprocessing.answer(question: question, logits: raw.map(Double.init), temperature: temperature))

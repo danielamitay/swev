@@ -1,6 +1,7 @@
 import Foundation
 import MLX
 import MLXDecisionModels
+import MLXLMCommon
 import Testing
 @testable import Swev
 
@@ -59,4 +60,17 @@ import Testing
     let restored = RotatedQuantization.transform(transformed, block: 512, signs: signs, inverse: true)
     #expect(abs(restored - x).max().item(Float.self) < 1e-5)
     #expect(abs((x * x).sum() - (transformed * transformed).sum()).item(Float.self) < 1e-3)
+}
+
+@Test func decisionForwardSupportsFlatLanguageAndBatchedVisionInputs() throws {
+    guard ProcessInfo.processInfo.environment["SWEV_TEST_MLX"] == "1" else { return }
+    let flat = LMInput.Text(tokens: MLXArray([11, 12, 13]), mask: MLXArray([1, 1, 1]))
+    let batched = try flat.batchedForDecisionForward()
+    #expect(batched.tokens.shape == [1, 3])
+    #expect(batched.mask?.shape == [1, 3])
+    #expect(try batched.batchedForDecisionForward().tokens.shape == [1, 3])
+    #expect(batched.tokens.reshaped([-1]).asArray(Int.self) == [11, 12, 13])
+    #expect(throws: SwevError.inferenceFailed) {
+        try LMInput.Text(tokens: MLXArray([1, 2, 3, 4]).reshaped([2, 2])).batchedForDecisionForward()
+    }
 }
