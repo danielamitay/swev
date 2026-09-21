@@ -24,49 +24,60 @@ final class MLXDecisionBackend: Sendable {
         self.maxContextTokens = maxContextTokens
     }
 
-    static func load(hf id: String, revision: String) async throws -> MLXDecisionBackend {
+    static func load(hf id: String, revision: String, contextLimit: Int? = nil) async throws -> MLXDecisionBackend {
         let parts = id.split(separator: "/", omittingEmptySubsequences: false)
         guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
             throw SwevError.invalidRequest("Expected a Hugging Face model ID in owner/name form")
         }
-        return try await load(configuration: .init(id: id, revision: revision), id: id, revision: revision, local: false)
+        return try await load(configuration: .init(id: id, revision: revision), id: id, revision: revision, local: false, contextLimit: contextLimit)
     }
 
-    static func load(url: URL) async throws -> MLXDecisionBackend {
+    static func load(url: URL, contextLimit: Int? = nil) async throws -> MLXDecisionBackend {
         var isDirectory: ObjCBool = false
         guard url.isFileURL,
               FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue,
               !["mlpackage", "mlmodelc"].contains(url.pathExtension) else { throw SwevError.invalidModelAsset }
-        return try await load(configuration: .init(directory: url), id: url.path, revision: "local", local: true)
+        return try await load(configuration: .init(directory: url), id: url.path, revision: "local", local: true, contextLimit: contextLimit)
     }
 
     private static func load(configuration: ModelConfiguration, id: String, revision: String,
-                             local: Bool) async throws -> MLXDecisionBackend {
+                             local: Bool, contextLimit: Int?) async throws -> MLXDecisionBackend {
         try Task.checkCancellation()
-        await ProcessorCompatibility.install.value
+        let directory: URL
+        switch configuration.id {
+        case .directory(let url): directory = url
+        case .id(let modelID, let modelRevision):
+            // Inspect metadata first so unsupported architectures never trigger weight downloads.
+            directory = try await #hubDownloader().download(id: modelID, revision: modelRevision,
+                matching: ["config.json"], useLatest: false, progressHandler: { _ in })
+        }
+        let configURL = directory.appendingPathComponent("config.json")
+        guard FileManager.default.fileExists(atPath: configURL.path) else {
+            throw SwevError.invalidRequest("This runtime requires config.json with a supported model_type; custom decision-head checkpoints need a dedicated backend")
+        }
+        let inspection = try ModelConfigurationInspection(data: Data(contentsOf: configURL), contextLimit: contextLimit)
+        let useVision = await VLMTypeRegistry.shared.contains(inspection.modelType)
+        let useLanguage = await LLMTypeRegistry.shared.contains(inspection.modelType)
+        guard useVision || useLanguage else {
+            throw SwevError.invalidRequest("Unsupported model_type: \(inspection.modelType). A matching runtime implementation is required")
+        }
+        let resolved = try await resolve(configuration: configuration, from: #hubDownloader(),
+            useLatest: false, progressHandler: { _ in })
         let container: ModelContainer
-        do {
-            container = try await VLMModelFactory.shared.loadContainer(from: #hubDownloader(),
-                using: #huggingFaceTokenizerLoader(), configuration: configuration)
-        } catch ModelFactoryError.unsupportedModelType {
-            container = try await LLMModelFactory.shared.loadContainer(from: #hubDownloader(),
-                using: #huggingFaceTokenizerLoader(), configuration: configuration)
-        }
-        let loadedConfiguration = await container.configuration
-        guard case .directory(let directory) = loadedConfiguration.id,
-              let config = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("config.json"))) as? [String: Any] else {
-            throw SwevError.invalidModelAsset
-        }
-        let textConfig = config["text_config"] as? [String: Any] ?? config
-        guard let contextLimit = textConfig["max_position_embeddings"] as? Int, contextLimit > 0 else {
-            throw SwevError.invalidRequest("Model must declare max_position_embeddings for bounded decision input")
+        if useVision {
+            let factory = try ProcessorCompatibility.factory(directory: resolved.modelDirectory)
+            container = ModelContainer(context: try await factory._load(configuration: resolved,
+                tokenizerLoader: #huggingFaceTokenizerLoader()))
+        } else {
+            container = ModelContainer(context: try await LLMModelFactory.shared._load(configuration: resolved,
+                tokenizerLoader: #huggingFaceTokenizerLoader()))
         }
         let vision = await container.perform { context in context.model is any VLMModel }
         try Task.checkCancellation()
-        let snapshot = directory.lastPathComponent
+        let snapshot = resolved.modelDirectory.lastPathComponent
         let resolvedRevision = snapshot.count == 40 && snapshot.allSatisfy(\.isHexDigit) ? snapshot : revision
         return .init(container: container, id: id, revision: local ? "local" : resolvedRevision,
-                     supportsImages: vision, maxContextTokens: contextLimit)
+                     supportsImages: vision, maxContextTokens: inspection.maxContextTokens)
     }
 
     /// Each question gets a fresh cache and one logical prefill; no token is sampled or generated.

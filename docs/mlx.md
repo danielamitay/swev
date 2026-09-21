@@ -52,12 +52,21 @@ Swev formats one deterministic prompt per question, then continues the runtime's
 
 The current decision layer allows 26 options, 64 questions per request, and one PNG/JPEG image of at most 32 MiB. Requests are serialized; the default admission bound is eight pending requests, configurable with `maxPendingRequests:`. Excess requests fail with `queueFull`. Cancellation is checked between processing stages; it cannot interrupt a device operation already running.
 
-The context bound comes from the model's `max_position_embeddings` (8,192 for this SmolVLM). Overlong input is rejected, never truncated. There are no exported sequence buckets on the MLX path.
+The context bound comes from the model's `max_position_embeddings` (8,192 for this SmolVLM), preferring the nested text configuration. Both loading overloads accept `maxContextTokens:` to use a smaller bound. When the model omits its limit, supply this argument using the architecture's documented supported context. An override cannot exceed an explicitly declared limit. Invalid declarations and overlong input are rejected, never silently corrected or truncated. There are no exported sequence buckets on the MLX path.
+
+```swift
+let model = try await SwevModel.load(url: modelDirectory, maxContextTokens: 4096)
+```
+
+Swev inspects `config.json` before downloading weights and selects the VLM or language runtime from its registered `model_type`. It does not select a backend from a repository name or reinterpret an unknown architecture as a similar one. Quantization remains the runtime's responsibility, including per-layer settings. Registered architecture support is a prerequisite, not a guarantee of decision accuracy.
 
 ## Runtime compatibility
 
-`mlx-swift-lm` 3.31.4 routes this checkpoint's declared `Idefics3Processor` to a processor that omits chat framing and uses the wrong image dimensions. The isolated `ProcessorCompatibility` shim selects **MLX's existing SmolVLM processor** for configurations with `max_image_size`, supplying the otherwise-required video defaults for these image-only assets. Swev does not implement resizing, normalization, tiling, or vision encoding. This shim should move upstream before declaring broad model support; only the 500M checkpoint has been validated here.
+`mlx-swift-lm` 3.31.4 routes some checkpoints' declared `Idefics3Processor` to a processor that omits chat framing and uses the wrong image dimensions. The isolated `ProcessorCompatibility` shim selects **MLX's existing SmolVLM processor** when the declared processor settings include `max_image_size`. It merges split processor files, preserves the declared `image_seq_len`, and rejects conflicting counts. The registry is scoped to each load; no checkpoint files or global runtime registrations are modified. Image-only assets receive the runtime's required video defaults, but video requests remain unsupported.
 
+Swev does not implement resizing, normalization, tiling, or vision encoding. This shim should move upstream before declaring broad model support; only the 500M checkpoint has completed accuracy validation here.
+
+Custom decision-head checkpoints without a supported causal/VLM configuration require a dedicated backend. Likewise, custom weight transforms require a matching runtime implementation. The loader fails explicitly for these assets; it does not guess from their filenames or use remote repository code.
 The stock Transformers checkpoint is not interchangeable with the MLX repository: this runtime expects the MLX convolution weight layout. Use an ordinary supported MLX repository, not a Swev export. No special model metadata or modified checkpoint is needed.
 
 ## Build the command-line interface

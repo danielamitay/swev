@@ -26,17 +26,19 @@ public final class SwevModel: Sendable {
 
     /// Loads an ordinary supported MLX model from Hugging Face, reusing its normal download cache.
     /// Pin `revision` to a commit for reproducibility. Only SmolVLM 500M BF16 is validated so far.
+    /// `maxContextTokens` bounds input further, or supplies a missing model context limit.
     /// Requests are serialized and bounded; `maxPendingRequests` must be between 1 and 64.
-    public static func load(hf modelID: String, revision: String = "main", maxPendingRequests: Int = 8) async throws -> SwevModel {
+    public static func load(hf modelID: String, revision: String = "main", maxPendingRequests: Int = 8, maxContextTokens: Int? = nil) async throws -> SwevModel {
         try validateAdmission(maxPendingRequests)
-        return try await loaded(MLXDecisionBackend.load(hf: modelID, revision: revision), maxPendingRequests: maxPendingRequests)
+        return try await loaded(MLXDecisionBackend.load(hf: modelID, revision: revision, contextLimit: maxContextTokens), maxPendingRequests: maxPendingRequests)
     }
 
     /// Loads a local MLX model directory containing weights, configuration, and tokenizer files.
+    /// `maxContextTokens` has the same meaning as in `load(hf:)`.
     /// No download or conversion is performed. The URL must be a file URL pointing to a directory.
-    public static func load(url: URL, maxPendingRequests: Int = 8) async throws -> SwevModel {
+    public static func load(url: URL, maxPendingRequests: Int = 8, maxContextTokens: Int? = nil) async throws -> SwevModel {
         try validateAdmission(maxPendingRequests)
-        return try await loaded(MLXDecisionBackend.load(url: url), maxPendingRequests: maxPendingRequests)
+        return try await loaded(MLXDecisionBackend.load(url: url, contextLimit: maxContextTokens), maxPendingRequests: maxPendingRequests)
     }
 
     private static func validateAdmission(_ limit: Int) throws {
