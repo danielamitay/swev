@@ -12,7 +12,7 @@ public struct ModelDescriptor: Sendable {
 public final class SwevModel: Sendable {
     public let descriptor: ModelDescriptor
     private enum Backend: Sendable {
-        case mlx(MLXDecisionBackend)
+        case mlx(any DecisionRuntime)
         case coreML(CoreMLDecisionBackend)
     }
     private let backend: Backend
@@ -25,7 +25,7 @@ public final class SwevModel: Sendable {
     }
 
     /// Loads an ordinary supported MLX model from Hugging Face, reusing its normal download cache.
-    /// Pin `revision` to a commit for reproducibility. Only SmolVLM 500M BF16 is validated so far.
+    /// Pin `revision` to a commit for reproducibility. Supported architectures depend on the runtime.
     /// `maxContextTokens` bounds input further, or supplies a missing model context limit.
     /// Requests are serialized and bounded; `maxPendingRequests` must be between 1 and 64.
     public static func load(hf modelID: String, revision: String = "main", maxPendingRequests: Int = 8, maxContextTokens: Int? = nil) async throws -> SwevModel {
@@ -45,7 +45,7 @@ public final class SwevModel: Sendable {
         guard (1...64).contains(limit) else { throw SwevError.invalidRequest("Pending request limit must be 1–64") }
     }
 
-    private static func loaded(_ runtime: MLXDecisionBackend, maxPendingRequests: Int) -> SwevModel {
+    private static func loaded(_ runtime: any DecisionRuntime, maxPendingRequests: Int) -> SwevModel {
         .init(backend: .mlx(runtime), descriptor: .init(id: runtime.id, revision: runtime.revision,
             capabilities: .init(modalities: runtime.supportsImages ? ["text", "image"] : ["text"],
                 questionTypes: QuestionType.allCases, limits: .init(maxQuestionsPerRequest: 64,

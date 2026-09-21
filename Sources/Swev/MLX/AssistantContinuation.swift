@@ -1,6 +1,6 @@
 import Foundation
 
-/// Completes a declared channel-based chat header before adding decision content.
+/// Completes declared assistant headers before adding decision content.
 /// Detection uses tokenizer control tokens, never a repository or architecture name.
 struct AssistantContinuation: Sendable {
     private let plain: [Int]
@@ -8,7 +8,10 @@ struct AssistantContinuation: Sendable {
     private let finalHeader: [Int]?
     private let finalContent: [Int]?
 
-    init(encode: (String) -> [Int], decode: ([Int]) -> String) {
+    static let probe = "SWEV_ASSISTANT_CONTENT_PROBE"
+
+    init(encode: (String) -> [Int], decode: ([Int]) -> String,
+         renderAssistant: (() throws -> String)? = nil) throws {
         plain = encode(DecisionPrompt.answerPrefix)
         func isControl(_ text: String) -> Bool {
             let tokens = encode(text)
@@ -22,6 +25,21 @@ struct AssistantContinuation: Sendable {
             openHeader = encode(start + "assistant")
             finalHeader = encode(start + "assistant" + channel + "final" + message)
             finalContent = encode(channel + "final" + message + DecisionPrompt.answerPrefix)
+        } else if isControl("<|start|>"), isControl("<|message|>"), let renderAssistant {
+            // Read recipient syntax from a rendered assistant message, not a model-name rule.
+            let rendered = try renderAssistant()
+            guard let content = rendered.range(of: Self.probe),
+                  let start = rendered[..<content.lowerBound].range(of: "<|start|>assistant", options: .backwards) else {
+                throw SwevError.invalidRequest("Cannot identify the template’s assistant content header")
+            }
+            let header = String(rendered[start.lowerBound..<content.lowerBound])
+            guard header.hasSuffix("<|message|>"),
+                  !header.dropFirst("<|start|>assistant".count).contains("<|start|>") else {
+                throw SwevError.invalidRequest("Unsupported assistant content header")
+            }
+            openHeader = encode("<|start|>assistant")
+            finalHeader = encode(header)
+            finalContent = encode(String(header.dropFirst("<|start|>assistant".count)) + DecisionPrompt.answerPrefix)
         } else {
             openHeader = nil
             finalHeader = nil
@@ -36,6 +54,6 @@ struct AssistantContinuation: Sendable {
         guard let openHeader, let finalHeader, let finalContent else { return plain }
         if tail.suffix(openHeader.count).elementsEqual(openHeader) { return finalContent }
         if tail.suffix(finalHeader.count).elementsEqual(finalHeader) { return plain }
-        throw SwevError.invalidRequest("Channel-based chat template must end in an open assistant header or a final-channel content header")
+        throw SwevError.invalidRequest("Chat template must end in an open assistant header or its declared content header")
     }
 }

@@ -25,3 +25,14 @@ import Testing
         try DecisionPrompt(state: "x", question: .score(id: "s", instructions: "Rate", levels: Array(repeating: "level", count: 27)))
     }
 }
+
+@Test func missingDescriptionsPreserveLabelsAndBooleanValues() throws {
+    let prompt = try DecisionPrompt(state: "x", question: .choice(id: "q", instructions: "Choose", options: [
+        .init(id: "none", description: .null), .init(id: "empty", description: ""),
+        .init(id: "zero", description: .number(0)), .init(id: "false", description: .bool(false))
+    ]))
+    #expect(prompt.text.contains("A. none\nB. empty\nC. zero: 0\nD. false: false\n"))
+    let noul = try DecisionPrompt(state: "x", question: .noul(id: "n", instructions: "True?",
+        falseDescription: .null, trueDescription: ""))
+    #expect(noul.text.contains("A. No\nB. Yes\n"))
+}

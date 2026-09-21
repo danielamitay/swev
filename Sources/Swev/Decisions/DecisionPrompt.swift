@@ -16,15 +16,19 @@ struct DecisionPrompt: Sendable {
             if case .string(let string) = value { return string }
             return try value.jsonString()
         }
+        func description(_ value: JSONValue?) throws -> String? {
+            guard let value, !value.isNull, !value.isEmptyString else { return nil }
+            return try text(value)
+        }
         let options: [String]
         switch question {
         case .choice(_, _, let candidates):
             options = try candidates.map { option in
-                try option.id + (option.description.map { ": " + (try text($0)) } ?? "")
+                try option.id + (description(option.description).map { ": " + $0 } ?? "")
             }
         case .score(_, _, let levels): options = try levels.map(text)
         case .noul(_, _, let no, let yes):
-            options = [try no.map(text) ?? "No", try yes.map(text) ?? "Yes"]
+            options = [try description(no) ?? "No", try description(yes) ?? "Yes"]
         }
         self.text = "Choose the best answer to the question using the state below. Reply with only the answer letter.\n\nState: "
             + (try text(state)) + "\n\nQuestion: " + (try text(question.instructions)) + "\n\nAnswers:\n"

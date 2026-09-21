@@ -30,7 +30,10 @@ import Swev
         } else {
             model = try await SwevModel.load(hf: args[1], maxContextTokens: contextLimit)
         }
-        try emit(["phase": "loaded", "model": model.descriptor.id, "load_seconds": elapsed(start)])
+        try emit(["phase": "loaded", "model": model.descriptor.id,
+            "revision": model.descriptor.revision, "load_seconds": elapsed(start),
+            "max_context_tokens": model.descriptor.capabilities.limits.maxSequenceTokens,
+            "supports_images": model.descriptor.capabilities.supportsImages])
         let rows = try String(contentsOfFile: args[2], encoding: .utf8).split(separator: "\n")
         for line in rows {
             let row = try JSONValue.parse(Data(line.utf8))
