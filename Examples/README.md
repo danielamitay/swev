@@ -1,35 +1,25 @@
-# Runnable examples
+# Examples
 
-The [Decisions example](Decisions/Sources/Decisions/Decisions.swift) is a small macOS command-line program using the public Swift API. It supports all three text question types and a single-image choice question. Its package depends on the repository checkout, so examples build against the code you are editing.
+`Decisions` loads an ordinary MLX model from Hugging Face or a local directory. It asks text questions by default, or a scene question when given an image. Model output is not hard-coded.
 
-Requires Swift 6 and macOS 15+. From the repository root:
-
-```sh
-swift run --package-path Examples/Decisions -c release Decisions \
-  danielamitay/gemma-4-e2b-it-lut4-g8-swev \
-  gemma-4-e2b-it-lut4-g8-swev-l4096-k16.mlpackage
-```
-
-The first run downloads about 2.44 GB. Later runs reuse the downloaded package, but each new process still compiles/loads Core ML. The example uses CPU+GPU execution and prints a JSON response. The model chooses the answers; output is not hard-coded.
-
-Append a PNG/JPEG path to ask about an image instead:
+Build with Xcode so MLX's Metal shaders are available:
 
 ```sh
-swift run --package-path Examples/Decisions -c release Decisions \
-  danielamitay/gemma-4-e2b-it-lut4-g8-swev \
-  gemma-4-e2b-it-lut4-g8-swev-l4096-k16.mlpackage \
-  /path/to/photo.jpg
+cd Examples/Decisions
+xcodebuild -scheme SwevExamples -configuration Release \
+  -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath ../../.local/example-build \
+  -skipMacroValidation -skipPackagePluginValidation build
+
+../../.local/example-build/Build/Products/Release/Decisions \
+  mlx-community/SmolVLM-500M-Instruct-bf16
+
+../../.local/example-build/Build/Products/Release/Decisions \
+  mlx-community/SmolVLM-500M-Instruct-bf16 /path/to/photo.jpg
 ```
 
-For Gemma FP32 or Kev 4B, add `--cpu-only` immediately after `Decisions`. Gemma FP32 crashes on GPU; Kev 4B has no meaningful speedup and excessive memory use at its largest GPU context. See [compute policy](../docs/performance.md) for tested configurations.
+Use a local model directory in place of the Hub ID to avoid downloads. Append `--max-context-tokens N` to supply a missing context declaration or use a smaller bound. Repeated Hub loads reuse the download cache; keep the model resident in your app to avoid repeated initialization. Images must be PNG or JPEG, and the selected model must support vision.
 
-Replace the first two arguments with any [compatible model](../README.md#models). Text-only packages cannot accept the image argument. Edit the questions and state in the example source to try your own task.
+`Benchmark` evaluates JSON Lines cases sequentially and reports loading separately from inference. See [benchmark instructions](../docs/mlx.md#reproduce-a-benchmark).
 
-To check the example without downloading a model:
-
-```sh
-swift build --package-path Examples/Decisions
-swift run --package-path Examples/Decisions Decisions --help
-```
-
-For an already downloaded local package, use the repository's [JSON Lines driver](../docs/evaluation.md#native-swift-driver): `swift run swev --model /path/to/model.mlpackage`. It reads one text request per line from standard input.
+For stdin JSON Lines requests, use the repository's [evaluation driver](../docs/evaluation.md).

@@ -1,6 +1,4 @@
-> **MLX branch:** SmolVLM 500M now loads directly from an ordinary MLX repository with `SwevModel.load(hf: "mlx-community/SmolVLM-500M-Instruct-bf16")`. See the [MLX quickstart and prototype limits](docs/mlx.md). Core ML loading remains temporarily available for migration comparisons.
-
-![Swev — typed decisions, locally in Swift with Core ML. State and questions become choices, scores, and probabilities.](docs/assets/swev-header.png)
+![Swev — typed decisions, locally in Swift. State and questions become choices, scores, and probabilities.](docs/assets/swev-header-mlx.png)
 
 **Jev-style typed decisions, locally in Swift with MLX.**
 
@@ -12,7 +10,7 @@ Define the question and possible answers in your app. Swev scores those answers 
 - **Questions defined at runtime.** Choose among your own options, score an ordered scale, or request a probability of true.
 - **Ordinary MLX models.** Load supported Hugging Face repositories or local model directories. No Swev export is required; text-only requests skip vision encoding.
 
-**Swift 6.1 · macOS 15+ · iOS 18+ · MIT license**
+**Swift 6.2 · macOS 15+ · iOS 18+ · MIT license**
 
 [Quickstart](#quickstart) · [Models](#models) · [Image input](#image-input) · [Documentation](#documentation)
 
@@ -95,26 +93,41 @@ State and instructions accept strings or structured `JSONValue` data. Questions 
 
 ## Models
 
-These repositories contain MLX weights rather than Swev-specific exports. **SmolVLM 500M is currently validated with Swev.** The other entries are listed with their current compatibility status; an MLX checkpoint alone does not guarantee support in `mlx-swift-lm`.
+These checkpoints were evaluated through the same Swev API on all **231 public JevBench cases**. Load their Hugging Face IDs directly; no Swev export is required. Results measure direct candidate scoring, with no generated reasoning or answer text.
 
-| Model | Size (disk) | Precision | Latency (mean) | JevBench accuracy | Vision? | Swev status |
-| --- | ---: | --- | ---: | ---: | :---: | --- |
-| [Laya · 421M](https://huggingface.co/aac6fef/laya-mlx) | 0.85 GB | FP16 | — | — | No | Requires a dedicated backend |
-| [SmolVLM 256M Instruct](https://huggingface.co/mlx-community/SmolVLM-256M-Instruct-bf16) | 0.52 GB | BF16 | — | — | Yes | Not yet validated |
-| [SmolVLM 500M Instruct](https://huggingface.co/mlx-community/SmolVLM-500M-Instruct-bf16) | 1.02 GB | BF16 | 63 ms | 45.0% (104/231) | Yes | Validated |
-| [SmolVLM 2.2B Instruct](https://huggingface.co/mlx-community/SmolVLM-Instruct-bf16) | 4.50 GB | BF16 | — | — | Yes | Not yet validated |
+| Model | Size (disk) | Precision | Latency (mean) | JevBench accuracy | Vision? |
+| --- | ---: | --- | ---: | ---: | :---: |
+| [SmolVLM 256M Instruct](https://huggingface.co/mlx-community/SmolVLM-256M-Instruct-bf16) | 0.52 GB | BF16 | 37 ms | 33.3% | Yes |
+| [Laya 421M](https://huggingface.co/aac6fef/laya-mlx) | 0.85 GB | FP16 | 23 ms† | 48.9%† | No |
+| [SmolVLM 500M Instruct](https://huggingface.co/mlx-community/SmolVLM-500M-Instruct-bf16) | 1.02 GB | BF16 | 76 ms | 45.0% | Yes |
+| [Qwen2-VL 2B](https://huggingface.co/mlx-community/Qwen2-VL-2B-mlx) | 4.43 GB | BF16 | 240 ms | 48.1% | Yes |
+| [SmolVLM 2.2B Instruct](https://huggingface.co/mlx-community/SmolVLM-Instruct-bf16) | 4.50 GB | BF16 | 275 ms | 44.6% | Yes |
+| [Gemma 3 12B IT](https://huggingface.co/mlx-community/gemma-3-12b-it-4bit) | 8.07 GB | INT4 | 2.28 s | 69.3% | Yes |
+| [Ternary Bonsai 2 27B](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-mlx-2bit) | 8.61 GB | 2-bit | 3.96 s | 84.4% | Yes |
+| [GPT-OSS 20B](https://huggingface.co/mlx-community/gpt-oss-20b-MXFP4-Q8) | 12.10 GB | MXFP4 + INT8 | 743 ms | 72.7% | No |
+| [Qwen3.8 27B](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit) | 16.08 GB | INT4 | 3.62 s | 85.3% | Yes |
+| [Gemma 4 31B IT](https://huggingface.co/mlx-community/gemma-4-31b-it-4bit) | 18.44 GB | INT4 | 4.51 s | 91.3% | Yes |
+| [Muse Glimmer 30B](https://huggingface.co/mlx-community/Muse-Glimmer-30B-4bit) | 19.44 GB | INT4 | 3.67 s | 83.1% | Yes |
 
-**Measurement notes:** latency is the mean over all 231 public JevBench text requests on an Apple M4 Max with 128 GiB memory, using Swift/MLX on the GPU. Requests run sequentially, with loading and per-request warmup excluded; tokenization and inference are included. Accuracy uses the [pinned public JevBench suite](https://github.com/fstandhartinger/jevbench/tree/275763201a29d6083d4ee1431d709c296ef81281), not the official full leaderboard or a vision benchmark. SmolVLM 500M returned valid answers for all 231 cases; its separate text and image checks passed 17/17 and 13/15 respectively.
+**Measurements:** Apple M4 Max with 128 GiB memory, Swift/MLX on the GPU. Requests run sequentially with one excluded warmup per case. Latency includes prompt preparation, tokenization, and inference; it excludes loading and file I/O. Accuracy uses the [pinned public JevBench suite](https://github.com/fstandhartinger/jevbench/tree/275763201a29d6083d4ee1431d709c296ef81281), not the official full leaderboard. Rejected requests count as incorrect. See [methodology and checkpoint revisions](docs/performance.md).
 
-Sizes are approximate decimal GB for the repository files reported by Hugging Face, not runtime memory requirements. Precision describes stored weights. A dash means no Swev measurement is available; results from other runtimes or model versions are not substituted. “Vision” describes the model's intended modality, not a validation claim for untested entries.
+† Laya returned valid responses for 174/231 cases; its declared context and question-field budgets rejected 57. Its latency averages successful requests only. All other models returned valid responses for all 231 cases.
 
-[Laya's model card](https://huggingface.co/aac6fef/laya-mlx) describes a bidirectional ModernBERT decision encoder with custom scoring heads and a dedicated Python MLX runtime. It is not a generative language model and cannot currently be loaded through Swev's `mlx-swift-lm` backend.
+Gemma 3’s checkpoint omits its context declaration, so load it with an explicit bound:
 
-SmolVLM 500M supports an 8,192-token context, including prompt formatting and image tokens. Swev currently allows 26 answer options per question, 64 questions per request, and one image. Oversized input is rejected rather than truncated. See [MLX runtime compatibility and limits](docs/mlx.md) for the required processor compatibility shim and the current validation scope.
+```swift
+let model = try await SwevModel.load(
+    hf: "mlx-community/gemma-3-12b-it-4bit", maxContextTokens: 131_072
+)
+```
+
+“Vision” means image requests were exercised separately; JevBench accuracy here is text-only. Sizes are approximate decimal GB of repository files, not runtime memory. Precision describes stored weights; INT4 is affine integer quantization. Model quality and speed depend on the workload and device.
+
+Swev allows 26 answer options per question, 64 questions per request, and one image. Context and field limits depend on the checkpoint; oversized input is rejected rather than truncated. See [runtime compatibility and limits](docs/mlx.md).
 
 ## Image input
 
-The validated SmolVLM 500M model accepts text alone or text plus one PNG/JPEG. With the same `model` from the quickstart:
+Models marked “Vision” accept text alone or text plus one PNG/JPEG. With the same `model` from the quickstart:
 
 ```swift
 import Foundation
@@ -141,6 +154,6 @@ For JPEG bytes, use `image/jpeg`. You can check `model.descriptor.capabilities.s
 - [Benchmark runner](Examples/Benchmark) — sequential evaluation with loading and warmup excluded from inference timing.
 - [Contributing](CONTRIBUTING.md) — development setup, repository map, tests, and pull requests.
 
-The Core ML conversion, packaging, and evaluation documents remain in `docs/` for migration comparisons; they do not describe MLX model requirements.
+See [model compatibility](docs/models.md), [configuration formats](docs/schema.md), and [evaluation](docs/evaluation.md) for runtime details and validation.
 
 Run `swift test` for the package tests. Model weights and generated reports stay outside Git. Swev is [MIT-licensed](LICENSE); model licenses are listed separately in their releases.

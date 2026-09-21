@@ -1,10 +1,10 @@
-# MLX prototype
+# MLX runtime
 
-The `mlx` branch is migrating Swev to `mlx-swift-lm`. **SmolVLM 500M BF16 is the first validated model.** Core ML loading and tooling remain temporarily for before/after comparisons; the migration is not complete.
+Swev uses `mlx-swift-lm` to load ordinary MLX models and return typed decisions. See the [model table](../README.md#models) for measured compatibility and accuracy.
 
 ## Load once, predict repeatedly
 
-Use an Apple silicon Mac. Build with Xcode: MLX needs Metal shaders that command-line `swift build` does not compile. The package currently requires Swift 6.1 or newer.
+Use an Apple silicon Mac. Build with Xcode so MLX’s Metal shaders are compiled and bundled. The package currently requires Swift 6.2 or newer.
 
 ```swift
 import Swev
@@ -48,7 +48,7 @@ Structured state, `score`, `noul`, response probabilities, and metadata retain t
 
 ## Execution and limits
 
-Swev formats one deterministic prompt per question, then continues the runtime's assistant prefix with ` Answer: `. For tokenizers with channel-based chat control tokens, it first completes an open assistant header with the final channel; an unexpected channel header fails explicitly. This selection uses tokenizer capabilities, not model names. The channel path has template/unit validation; full-model accuracy validation is still pending. Each question gets a fresh KV cache and one logical prefill. Swev reads only the candidate logits and normalizes them; it never generates an answer or parses generated JSON. The tokenizer must encode every answer label as one distinct token.
+Swev formats one deterministic prompt per question, then continues the runtime's assistant prefix with ` Answer: `. For tokenizers with channel-based chat control tokens, it first completes an open assistant header with the final channel. Recipient-based headers are completed from a rendered assistant message in the checkpoint’s own template. Unexpected headers fail explicitly. Selection uses tokenizer and template capabilities, not model names. Each question gets a fresh KV cache and one logical prefill. Swev reads only the candidate logits and normalizes them; it never generates an answer or parses generated JSON. The tokenizer must encode every answer label as one distinct token.
 
 The current decision layer allows 26 options, 64 questions per request, and one PNG/JPEG image of at most 32 MiB. Requests are serialized; the default admission bound is eight pending requests, configurable with `maxPendingRequests:`. Excess requests fail with `queueFull`. Cancellation is checked between processing stages; it cannot interrupt a device operation already running.
 
@@ -62,13 +62,20 @@ Swev inspects `config.json` before downloading weights and selects the VLM or la
 
 ## Runtime compatibility
 
-`mlx-swift-lm` 3.31.4 routes some checkpoints' declared `Idefics3Processor` to a processor that omits chat framing and uses the wrong image dimensions. The isolated `ProcessorCompatibility` shim selects **MLX's existing SmolVLM processor** when the declared processor settings include `max_image_size`. It merges split processor files, preserves the declared `image_seq_len`, and rejects conflicting counts. The registry is scoped to each load; no checkpoint files or global runtime registrations are modified. Image-only assets receive the runtime's required video defaults, but video requests remain unsupported.
+The upstream processor registry routes some checkpoints' declared `Idefics3Processor` to a processor that omits chat framing and uses the wrong image dimensions. The isolated `ProcessorCompatibility` shim selects **MLX's existing SmolVLM processor** when the declared processor settings include `max_image_size`. It merges split processor files, preserves the declared `image_seq_len`, and rejects conflicting counts. The registry is scoped to each load; no checkpoint files or global runtime registrations are modified. Image-only assets receive the runtime's required video defaults, but video requests remain unsupported.
 
 A separate tokenizer compatibility loader preserves the upstream template-file precedence and converts complete `role.capitalize()` expressions to the equivalent `capitalize` filter, which the pinned Swift template engine supports. It leaves the checkpoint unchanged and delegates rendering and tokenization to the runtime. Source-engine comparisons confirm identical text and image prompt rendering for the affected template.
 
-Swev does not implement resizing, normalization, tiling, or vision encoding. This shim should move upstream before declaring broad model support; the 256M, 500M, and 2.2B checkpoints have completed text/image fixture runs, but only 500M has completed the public JevBench comparison.
+Swev does not implement resizing, normalization, tiling, or vision encoding. These compatibility bridges remain isolated so they can be removed when upstream support covers the affected configurations. The README reports measured checkpoints rather than claiming every model in a family works.
 
-Custom decision-head checkpoints without a supported causal/VLM configuration require a dedicated backend. Likewise, custom weight transforms require a matching runtime implementation. The loader fails explicitly for these assets; it does not guess from their filenames or use remote repository code.
+Two declared checkpoint formats have isolated Swift runtime extensions in `MLXDecisionModels`:
+
+- `laya-mlx` format version 1 uses a bidirectional ModernBERT encoder and trained decision heads. Its own tokenizer, marker layout, option-count calibration, and declared context/head limits are preserved. It accepts text only and rejects inputs that would require truncation.
+- `prism_hadamard_qwen35` schema version 2 uses the upstream Qwen 3.5 language/vision model with manifest-selected signed Hadamard transforms around packed 2-bit layers. The upstream runtime still owns the architecture and image processor.
+
+Selection uses declared architecture/format identifiers, never repository names. Unknown formats and versions fail explicitly; no downloaded Python code is executed. Ordinary quantization remains upstream-owned.
+
+The runtime is pinned to `mlx-swift-lm` commit `c6446cf7bfb7cea76408013b614d4b2c530eaa03` and `mlx-swift` 0.31.6. This revision adds Muse support and requires Swift 6.2. The package disables optional runtime traits.
 The stock Transformers checkpoint is not interchangeable with the MLX repository: this runtime expects the MLX convolution weight layout. Use an ordinary supported MLX repository, not a Swev export. No special model metadata or modified checkpoint is needed.
 
 ## Build the command-line interface
@@ -76,7 +83,7 @@ The stock Transformers checkpoint is not interchangeable with the MLX repository
 ```sh
 xcodebuild -scheme swev -configuration Release \
   -destination 'platform=macOS,arch=arm64' \
-  -derivedDataPath .local/mlx-build -skipMacroValidation build
+  -derivedDataPath .local/mlx-build -skipMacroValidation -skipPackagePluginValidation build
 
 printf '%s\n' '{"state":"apple","questions":{"edible":{"type":"noul","instructions":"Is this edible food?"}}}' | \
   .local/mlx-build/Build/Products/Release/swev \
@@ -85,7 +92,7 @@ printf '%s\n' '{"state":"apple","questions":{"edible":{"type":"noul","instructio
 
 Both the CLI and benchmark runner accept an optional trailing `--max-context-tokens N`, with the same bounds as the Swift loading API.
 
-If Xcode reports a missing Metal compiler, install it with `xcodebuild -downloadComponent MetalToolchain`. The macro validation flag enables the pinned upstream Hugging Face integration macros for a command-line build. The CLI currently accepts text requests; images use the Swift API.
+If Xcode reports a missing Metal compiler, install it with `xcodebuild -downloadComponent MetalToolchain`. The validation flags enable the pinned upstream macros and build plugins for a command-line build. The upstream CUDA plugin is inactive on macOS. The CLI currently accepts text requests; images use the Swift API.
 
 ## Reproduce a benchmark
 
@@ -95,9 +102,9 @@ If Xcode reports a missing Metal compiler, install it with `xcodebuild -download
 cd Examples/Benchmark
 xcodebuild -scheme SwevBenchmark -configuration Release \
   -destination 'platform=macOS,arch=arm64' \
-  -derivedDataPath ../../.local/benchmark-build -skipMacroValidation build
+  -derivedDataPath ../../.local/benchmark-build -skipMacroValidation -skipPackagePluginValidation build
 ../../.local/benchmark-build/Build/Products/Release/SwevBenchmark \
   mlx-community/SmolVLM-500M-Instruct-bf16 /path/to/cases.jsonl
 ```
 
-The local migration experiment uses the pinned public JevBench dataset, its original option ordering, and upstream scoring functions. Full run receipts and the comparison report live in `.local/mlx-migration/`; they are not model assets or committed benchmark claims.
+The local migration experiment uses the pinned public JevBench dataset, its original option ordering, and upstream scoring functions. Full run receipts and the comparison report live in `.local/full-mlx-bench/`; they are not model assets. Checkpoint revisions and measurement details are documented in [performance](performance.md).
