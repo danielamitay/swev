@@ -97,17 +97,17 @@ These checkpoints were evaluated through the same Swev API on all **231 public J
 
 | Model | Size (disk) | Precision | Latency (mean) | JevBench accuracy | Vision? |
 | --- | ---: | --- | ---: | ---: | :---: |
-| [SmolVLM 256M Instruct](https://huggingface.co/mlx-community/SmolVLM-256M-Instruct-bf16) | 0.52 GB | BF16 | 37 ms | 33.3% | Yes |
-| [Laya 421M](https://huggingface.co/aac6fef/laya-mlx) | 0.85 GB | FP16 | 23 ms† | 48.9%† | No |
-| [SmolVLM 500M Instruct](https://huggingface.co/mlx-community/SmolVLM-500M-Instruct-bf16) | 1.02 GB | BF16 | 76 ms | 45.0% | Yes |
-| [Qwen2-VL 2B](https://huggingface.co/mlx-community/Qwen2-VL-2B-mlx) | 4.43 GB | BF16 | 240 ms | 48.1% | Yes |
-| [SmolVLM 2.2B Instruct](https://huggingface.co/mlx-community/SmolVLM-Instruct-bf16) | 4.50 GB | BF16 | 275 ms | 44.6% | Yes |
-| [Gemma 3 12B IT](https://huggingface.co/mlx-community/gemma-3-12b-it-4bit) | 8.07 GB | INT4 | 2.28 s | 69.3% | Yes |
-| [Ternary Bonsai 2 27B](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-mlx-2bit) | 8.61 GB | 2-bit | 3.96 s | 84.4% | Yes |
-| [GPT-OSS 20B](https://huggingface.co/mlx-community/gpt-oss-20b-MXFP4-Q8) | 12.10 GB | MXFP4 + INT8 | 743 ms | 72.7% | No |
-| [Qwen3.8 27B](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit) | 16.08 GB | INT4 | 3.62 s | 85.3% | Yes |
 | [Gemma 4 31B IT](https://huggingface.co/mlx-community/gemma-4-31b-it-4bit) | 18.44 GB | INT4 | 4.51 s | 91.3% | Yes |
+| [Qwen3.8 27B](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit) | 16.08 GB | INT4 | 3.62 s | 85.3% | Yes |
+| [Ternary Bonsai 2 27B](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-mlx-2bit) | 8.61 GB | 2-bit | 3.96 s | 84.4% | Yes |
 | [Muse Glimmer 30B](https://huggingface.co/mlx-community/Muse-Glimmer-30B-4bit) | 19.44 GB | INT4 | 3.67 s | 83.1% | Yes |
+| [GPT-OSS 20B](https://huggingface.co/mlx-community/gpt-oss-20b-MXFP4-Q8) | 12.10 GB | MXFP4 + INT8 | 743 ms | 72.7% | No |
+| [Gemma 3 12B IT](https://huggingface.co/mlx-community/gemma-3-12b-it-4bit) | 8.07 GB | INT4 | 2.28 s | 69.3% | Yes |
+| [Laya 421M](https://huggingface.co/aac6fef/laya-mlx) | 0.85 GB | FP16 | 23 ms† | 48.9%† | No |
+| [Qwen2-VL 2B](https://huggingface.co/mlx-community/Qwen2-VL-2B-mlx) | 4.43 GB | BF16 | 240 ms | 48.1% | Yes |
+| [SmolVLM 500M Instruct](https://huggingface.co/mlx-community/SmolVLM-500M-Instruct-bf16) | 1.02 GB | BF16 | 76 ms | 45.0% | Yes |
+| [SmolVLM 2.2B Instruct](https://huggingface.co/mlx-community/SmolVLM-Instruct-bf16) | 4.50 GB | BF16 | 275 ms | 44.6% | Yes |
+| [SmolVLM 256M Instruct](https://huggingface.co/mlx-community/SmolVLM-256M-Instruct-bf16) | 0.52 GB | BF16 | 37 ms | 33.3% | Yes |
 
 **Measurements:** Apple M4 Max with 128 GiB memory, Swift/MLX on the GPU. Requests run sequentially with one excluded warmup per case. Latency includes prompt preparation, tokenization, and inference; it excludes loading and file I/O. Accuracy uses the [pinned public JevBench suite](https://github.com/fstandhartinger/jevbench/tree/275763201a29d6083d4ee1431d709c296ef81281), not the official full leaderboard. Rejected requests count as incorrect. See [methodology and checkpoint revisions](docs/performance.md).
 
