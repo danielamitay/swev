@@ -104,14 +104,17 @@ Browse the [Swev collection on Hugging Face](https://huggingface.co/collections/
 | [Gemma 4 E2B IT · FP32](https://huggingface.co/danielamitay/gemma-4-e2b-it-fp32-swev) | 19.16 GB | FP32 | 2.76 s | 63.2% | Yes |
 | [Gemma 4 E2B IT · LUT4](https://huggingface.co/danielamitay/gemma-4-e2b-it-lut4-g8-swev) | 2.44 GB | 4-bit palette, group 8 | 6.66 s | 65.4% | Yes |
 | [Gemma 4 E2B IT · LUT8](https://huggingface.co/danielamitay/gemma-4-e2b-it-lut8-tensor-swev) | 4.82 GB | 8-bit palette, per tensor | 4.34 s | 62.8% | Yes |
+| [SmolVLM 500M Instruct](https://huggingface.co/danielamitay/smolvlm-500m-instruct-fp32-swev) | 2.04 GB | FP32 | 1.61 s | 42.4% | Yes |
 | [Kev 0.5B](https://huggingface.co/danielamitay/kev-0.5b-fp32-swev) | 1.99 GB | FP32 | 1.46 s | 49.8% | No |
 | [Kev 0.6B](https://huggingface.co/danielamitay/kev-0.6b-fp32-swev) | 2.40 GB | FP32 | 2.24 s | 60.6% | No |
 | [Kev 4B](https://huggingface.co/danielamitay/kev-4b-fp32-swev) | 16.11 GB | FP32 | 12.14 s | 66.7% | No |
 | [Laya EN](https://huggingface.co/danielamitay/laya-en-fp32-swev) | 1.69 GB | FP32 | 1.56 s | 55.8% | No |
 
-All seven exports support **4,096 text tokens**, **16 answer options per question**, and **64 questions per request**. Context includes the state, question, options, and formatting; per-field limits also apply. Shorter requests use smaller context buckets. Gemma’s image route has a separate **256-token** budget, including 64 image tokens. Oversized requests throw rather than silently truncate.
+SmolVLM requires the tokenizer support in Swev commit [`4213de1`](https://github.com/danielamitay/swev/commit/4213de175031723f43b500820af1ad48db6baab4) or later. Use the latest `main` when loading it.
 
-Measured on all **231 public JevBench cases**, with every case answered. Latency excludes loading and warmup. Other applications were active during parts of the run, so the timings are not controlled speed comparisons.
+All eight exports support **4,096 text tokens**, **16 answer options per question**, and **64 questions per request**. Context includes the state, question, options, and formatting; per-field limits also apply. Shorter requests use smaller context buckets. Gemma and SmolVLM image routes have a separate **256-token** budget, including 64 image tokens. Oversized requests throw rather than silently truncate.
+
+All models were tested against **231 public JevBench cases**. SmolVLM answered 230; one prompt required 4,104 tokens and exceeded its context limit. Every other model answered all 231. Accuracy counts the unanswered case as incorrect; latency averages successful predictions and excludes loading and warmup. Runs occurred under different background system loads, so the timings are not controlled speed comparisons.
 
 <details>
 <summary>Measurement details and precision</summary>
@@ -126,7 +129,7 @@ Sizes are decimal GB on disk, not runtime memory requirements. Palette exports c
 
 ## Image input
 
-Use any of the Gemma packages above for text alone or text plus one PNG/JPEG. With the same `model` from the quickstart:
+Use any Gemma or SmolVLM package above for text alone or text plus one PNG/JPEG. With the same `model` from the quickstart:
 
 ```swift
 import Foundation
@@ -145,7 +148,7 @@ let response = try await model.predict(
 print(try response.choice("scene").choice)
 ```
 
-For JPEG bytes, use `image/jpeg`. You can check `model.descriptor.capabilities.supportsImages` before attaching an image. The current exports fit images to a 384 × 384 canvas. Text-only requests skip the vision encoder; audio, video, and multiple images are not supported.
+For JPEG bytes, use `image/jpeg`. You can check `model.descriptor.capabilities.supportsImages` before attaching an image. Gemma exports fit images to a 384 × 384 canvas; SmolVLM uses 512 × 512. Both use one fitted image rather than multiple crops. Text-only requests skip the vision encoder; audio, video, and multiple images are not supported.
 
 ## Documentation
 
