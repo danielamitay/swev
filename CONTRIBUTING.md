@@ -1,6 +1,6 @@
 # Contributing to Swev
 
-Use Swift 6.2 or newer with Xcode on macOS. Real MLX inference requires Apple silicon and compiled Metal shaders. The package targets macOS 15+ and iOS 18+; model performance and memory requirements need validation on the intended device. Python is used only for optional evaluation tooling, not inference.
+Use Swift 6.3 or newer with Xcode on macOS. Real MLX inference requires Apple silicon and compiled Metal shaders. The package targets macOS 15+ and iOS 18+; model performance and memory requirements need validation on the intended device. Python is used only for optional evaluation tooling, not inference.
 
 ## Get started
 

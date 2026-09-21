@@ -4,7 +4,7 @@ Swev uses `mlx-swift-lm` to load ordinary MLX models and return typed decisions.
 
 ## Load once, predict repeatedly
 
-Use an Apple silicon Mac. Build with Xcode so MLX’s Metal shaders are compiled and bundled. The package currently requires Swift 6.2 or newer.
+Use an Apple silicon Mac. Build with Xcode so MLX’s Metal shaders are compiled and bundled. The package currently requires Swift 6.3 or newer.
 
 ```swift
 import Swev
@@ -75,7 +75,7 @@ Two declared checkpoint formats have isolated Swift runtime extensions in `MLXDe
 
 Selection uses declared architecture/format identifiers, never repository names. Unknown formats and versions fail explicitly; no downloaded Python code is executed. Ordinary quantization remains upstream-owned.
 
-The runtime is pinned to `mlx-swift-lm` commit `c6446cf7bfb7cea76408013b614d4b2c530eaa03` and `mlx-swift` 0.31.6. This revision adds Muse support and requires Swift 6.2. The package disables optional runtime traits.
+The runtime is pinned to `mlx-swift-lm` commit `c6446cf7bfb7cea76408013b614d4b2c530eaa03` and `mlx-swift` 0.31.6. The language-model runtime adds Muse support; the pinned `mlx-swift` dependency requires Swift 6.3 (Xcode 26.4 or newer). The package disables optional runtime traits.
 The stock Transformers checkpoint is not interchangeable with the MLX repository: this runtime expects the MLX convolution weight layout. Use an ordinary supported MLX repository, not a Swev export. No special model metadata or modified checkpoint is needed.
 
 ## Build the command-line interface

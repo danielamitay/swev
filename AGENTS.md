@@ -1,6 +1,6 @@
 # Working on Swev
 
-- Swift 6.2 package for local typed decisions using MLX; macOS 15+ and iOS 18+. Read `README.md`, `CONTRIBUTING.md`, and `docs/mlx.md` before changing runtime behavior.
+- Swift 6.3 package for local typed decisions using MLX; macOS 15+ and iOS 18+. Read `README.md`, `CONTRIBUTING.md`, and `docs/mlx.md` before changing runtime behavior.
 - Keep the public API model-independent. MLX owns architectures, tokenizers, chat templates, caches, and image processing. Swev owns decision formatting, candidate mapping, probabilities, and scoring.
 - Select compatibility paths from declared configuration or tokenizer capabilities, never repository names. Keep runtime extensions isolated. Read `docs/models.md` and `docs/schema.md` before changing loading or format handling; reject unknown versions explicitly.
 - Preserve option order, probability precision, bounded requests, cancellation, and explicit errors. Never silently truncate input. Keep inference off the main actor.

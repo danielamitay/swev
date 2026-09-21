@@ -10,7 +10,7 @@ Define the question and possible answers in your app. Swev scores those answers 
 - **Questions defined at runtime.** Choose among your own options, score an ordered scale, or request a probability of true.
 - **Ordinary MLX models.** Load supported Hugging Face repositories or local model directories. No Swev export is required; text-only requests skip vision encoding.
 
-**Swift 6.2 · macOS 15+ · iOS 18+ · MIT license**
+**Swift 6.3 · macOS 15+ · iOS 18+ · MIT license**
 
 [Quickstart](#quickstart) · [Models](#models) · [Image input](#image-input) · [Documentation](#documentation)
 
