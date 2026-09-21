@@ -1,6 +1,7 @@
 @preconcurrency import CoreML
 import Foundation
 
+/// Core ML devices allowed for execution; availability and performance depend on the model and host.
 public enum ComputeUnits: Sendable {
     case all, cpuOnly, cpuAndGPU, cpuAndNeuralEngine
 
@@ -14,8 +15,12 @@ public enum ComputeUnits: Sendable {
     }
 }
 
+/// Execution devices and bounded admission for one resident model instance.
 public struct RuntimeConfiguration: Sendable {
+    /// Defaults to all available devices. CPU-only is useful for reproducible validation.
     public var computeUnits: ComputeUnits
+    /// Maximum admitted requests, including the active request; valid range is 1...64.
+    /// Excess requests fail with `SwevError.queueFull` rather than waiting unboundedly.
     public var maxPendingRequests: Int
 
     public init(computeUnits: ComputeUnits = .all, maxPendingRequests: Int = 8) {
@@ -24,6 +29,7 @@ public struct RuntimeConfiguration: Sendable {
     }
 }
 
+/// Modalities, question types, and limits declared by a validated model package.
 public struct ModelCapabilities: Decodable, Sendable {
     public let modalities: [String]
     public let questionTypes: [QuestionType]
@@ -33,11 +39,14 @@ public struct ModelCapabilities: Decodable, Sendable {
     public struct Limits: Decodable, Sendable {
         public let maxQuestionsPerRequest: Int
         public let maxOptionsPerQuestion: Int
+        /// Maximum across routes. A particular text/image route or field can have a lower limit.
         public let maxSequenceTokens: Int
     }
 }
 
+/// Package identity and execution contract, available after successful loading.
 public struct ModelDescriptor: Decodable, Sendable {
+    /// Swev metadata schema version; distinct from the export version and source revision.
     public let contractVersion: String
     public let modelVersion: String
     public let revision: String?
@@ -122,8 +131,11 @@ public actor SwevModel {
         if let ownedCompiledURL { try? FileManager.default.removeItem(at: ownedCompiledURL) }
     }
 
-    /// Loads one self-contained standard asset. Source packages are compiled off the main actor.
-    /// Compiled assets can be supplied directly; no sidecars, downloads, or persistent compile cache.
+    /// Loads a local `.mlpackage`, `.mlmodel`, or `.mlmodelc` with the Swev contract.
+    /// Source assets are compiled off the main actor; temporary compiled files live with this instance.
+    /// Keep the returned model resident for repeated predictions. This overload does not download assets.
+    /// - Throws: File/Core ML errors or `SwevError` for unsupported or inconsistent metadata,
+    ///   signatures, tokenizers, or configuration. Cancellation throws `CancellationError`.
     public static func load(from modelURL: URL, configuration: RuntimeConfiguration = .init()) async throws -> SwevModel {
         try Task.checkCancellation()
         guard modelURL.isFileURL,
@@ -138,11 +150,18 @@ public actor SwevModel {
         } onCancel: { task.cancel() }
     }
 
+    /// Evaluates ordered questions against shared state and an optional PNG/JPEG image.
+    /// Equivalent to creating a `DecisionRequest` and calling `predict(_:)`.
     public nonisolated func predict(state: JSONValue, questions: [Question], images: [ImageInput] = [],
                                     metadata: RequestMetadata? = nil) async throws -> DecisionResponse {
         try await predict(.init(state: state, questions: questions, images: images, metadata: metadata))
     }
 
+    /// Runs native preprocessing and serialized Core ML inference off the main actor.
+    /// Questions are independent; oversized input is rejected, not truncated. No partial response is returned.
+    /// Cancellation is checked between stages and questions; an active device call must finish first.
+    /// - Throws: `SwevError` for invalid requests, capacity limits, unsupported images, or a full queue;
+    ///   underlying image/Core ML errors can also propagate. Cancellation throws `CancellationError`.
     public nonisolated func predict(_ request: DecisionRequest) async throws -> DecisionResponse {
         try Task.checkCancellation()
         try admission.acquire()

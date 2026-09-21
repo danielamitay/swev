@@ -2,6 +2,9 @@ import Foundation
 
 /// Ordered text-only request/response subset. No remote URL fetching or model aliases.
 public enum DecisionCodec {
+    /// Decodes one UTF-8 JSON request, retaining question and candidate order.
+    /// If the request includes `model`, it must equal `modelID`. Images and duplicate keys are rejected.
+    /// Structural validation runs here; model-specific capacity checks happen during prediction.
     public static func decodeRequest(_ data: Data, modelID: String? = nil) throws -> DecisionRequest {
         let root = try JSONValue.parse(data)
         if let supplied = root.member("model") {
@@ -36,6 +39,8 @@ public enum DecisionCodec {
         return request
     }
 
+    /// Encodes the text wire subset without rounding probabilities or adding a trailing newline.
+    /// Typed-only fields such as caller metadata, model revision, and confidence method are omitted.
     public static func encodeResponse(_ response: DecisionResponse) throws -> Data {
         let answers = response.answers.map { answer -> (String, JSONValue) in
             let fields: [(String, JSONValue)]

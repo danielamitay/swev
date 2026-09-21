@@ -12,10 +12,15 @@ public struct HuggingFaceModel: Sendable {
         case localOnly
     }
 
+    /// Hub model repository in `owner/name` form.
     public var repository: String
+    /// Exact package directory within the repository, including `.mlpackage`.
     public var package: String
+    /// Branch, tag, or commit SHA. Pin a full SHA for reproducible downloads.
     public var revision: String
+    /// Optional read token for private/gated repositories; never persisted by Swev.
     public var token: String?
+    /// Root for downloaded snapshots; defaults to `Swev/HuggingFace` in the user's caches directory.
     public var cacheDirectory: URL
     public var cachePolicy: CachePolicy
 
@@ -30,7 +35,10 @@ public struct HuggingFaceModel: Sendable {
         self.cachePolicy = cachePolicy
     }
 
-    /// Downloads to disk atomically. Returned packages should be treated as read-only.
+    /// Returns a cached package or downloads a complete, commit-pinned snapshot atomically.
+    /// The default policy reuses cached revisions without a network request. Compiled models are not cached.
+    /// Returned packages should be treated as read-only.
+    /// - Throws: `HuggingFaceError`, network/filesystem errors, or `CancellationError`.
     public func download() async throws -> URL {
         try await download(using: HubTransport.live)
     }
@@ -129,12 +137,15 @@ public struct HuggingFaceModel: Sendable {
     private static func encodedPath(_ value: String) -> String { value.split(separator: "/").map { encoded(String($0)) }.joined(separator: "/") }
 }
 
+/// Hub location, availability, response, and download-integrity failures.
 public enum HuggingFaceError: Error, Sendable, Equatable {
     case invalidLocation, invalidResponse, packageNotFound, cacheMiss, integrityFailure
     case httpStatus(Int)
 }
 
 extension SwevModel {
+    /// Downloads or reuses a Hub package, then loads it with the same validation as a local asset.
+    /// Download caching is controlled by `source.cachePolicy`; retain the model to reuse its runtime.
     public static func load(from source: HuggingFaceModel, configuration: RuntimeConfiguration = .init()) async throws -> SwevModel {
         try await load(from: source.download(), configuration: configuration)
     }
