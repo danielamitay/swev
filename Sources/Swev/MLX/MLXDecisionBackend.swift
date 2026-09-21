@@ -15,9 +15,11 @@ final class MLXDecisionBackend: Sendable {
     let maxContextTokens: Int
     let supportsImages: Bool
     private let container: ModelContainer
+    private let continuation: AssistantContinuation
 
-    private init(container: ModelContainer, id: String, revision: String, supportsImages: Bool, maxContextTokens: Int) {
+    private init(container: ModelContainer, id: String, revision: String, supportsImages: Bool, maxContextTokens: Int, continuation: AssistantContinuation) {
         self.container = container
+        self.continuation = continuation
         self.id = id
         self.revision = revision
         self.supportsImages = supportsImages
@@ -80,11 +82,15 @@ final class MLXDecisionBackend: Sendable {
                 tokenizerLoader: TokenizerCompatibility()))
         }
         let vision = await container.perform { context in context.model is any VLMModel }
+        let continuation = await container.perform { context in
+            AssistantContinuation(encode: { context.tokenizer.encode(text: $0) },
+                decode: { context.tokenizer.decode(tokenIds: $0) })
+        }
         try Task.checkCancellation()
         let snapshot = resolved.modelDirectory.lastPathComponent
         let resolvedRevision = snapshot.count == 40 && snapshot.allSatisfy(\.isHexDigit) ? snapshot : revision
         return .init(container: container, id: id, revision: local ? "local" : resolvedRevision,
-                     supportsImages: vision, maxContextTokens: inspection.maxContextTokens)
+                     supportsImages: vision, maxContextTokens: inspection.maxContextTokens, continuation: continuation)
     }
 
     /// Each question gets a fresh cache and one logical prefill; no token is sampled or generated.
@@ -113,7 +119,9 @@ final class MLXDecisionBackend: Sendable {
                     chat: [.user(prompt.text, images: images)], additionalContext: ["enable_thinking": false]))
                 // Continue the runtime's assistant prefix with a deterministic decision prefix.
                 // This is still one prefill; no answer token is generated or decoded.
-                let suffix = MLXArray(context.tokenizer.encode(text: DecisionPrompt.answerPrefix))
+                let tailCount = min(self.continuation.tailCount, input.text.tokens.size)
+                let tail = tailCount == 0 ? [] : input.text.tokens.reshaped([-1])[(input.text.tokens.size - tailCount)...].asArray(Int.self)
+                let suffix = MLXArray(try self.continuation.tokens(after: tail))
                     .reshaped(input.text.tokens.ndim == 2 ? [1, -1] : [-1])
                 let tokens = concatenated([input.text.tokens, suffix], axis: -1)
                 input = LMInput(text: .init(tokens: tokens, mask: ones(like: tokens)), image: input.image)
