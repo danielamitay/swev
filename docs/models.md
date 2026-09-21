@@ -92,7 +92,7 @@ expected zero-based level. Confidence identifies its method and is not a probabi
 of correctness. Caller metadata is echoed without entering the prompt.
 
 Inference is serialized per model, off the main actor. Admission defaults to eight
-pending requests. Cancellation is checked between stages; an active device call
+requests total, including the active request. Cancellation is checked between stages; an active device call
 must finish before cancellation returns. Temporary compiled assets live with the
 model instance. CPU-only execution is validated locally; other compute units and
 iOS devices need their own validation. Tokenizer hashes detect corruption, not
@@ -169,7 +169,7 @@ compiler requirements. Once both routes have been used, runtime memory can
 exceed a single graph.
 No downloads or external model sidecars are required.
 
-The text graph may have a smaller sequence budget than the image graph, bounded
+Text and image graphs have independent sequence budgets, each bounded
 by the root `maxSequenceTokens`. Each graph applies its own recipe context limits; oversized requests are rejected. Exporters should check text → image → text transitions, probability
 parity, and latency separately. Image features are not cached between questions.
 

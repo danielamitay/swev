@@ -39,7 +39,7 @@ invalid inputs, driver failures, malformed output, or timeouts. All cases must p
 by default; `--min-accuracy 0.9` sets an explicit alternative. `--timeout 300`
 limits the complete run in seconds. Put driver arguments last.
 
-Run harness tests with `python3 -m unittest discover -s scripts -p 'test_*.py'`.
+Run the standard-library harness tests with `python3 -m unittest discover -s scripts -p 'test_evaluate.py'`. The full `test_*.py` suite also requires the [conversion dependencies](conversion.md#environment).
 Model conversion parity and runtime performance require separate evaluation.
 Keep weights, conversion environments, and generated reports under `.local/`
 or the ignored `models/` and `reports/` directories.

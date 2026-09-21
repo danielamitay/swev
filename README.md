@@ -24,7 +24,7 @@ Add `https://github.com/danielamitay/swev` in Xcode’s **Add Package Dependenci
 
 Add `.product(name: "Swev", package: "swev")` to your target’s dependencies.
 
-Load a compatible model from Hugging Face and ask a question:
+Load a compatible model from Hugging Face and ask a question from an `async` throwing function:
 
 ```swift
 import Swev
@@ -58,6 +58,16 @@ print(answer.probabilities) // Probability for every option
 ```
 
 The first load downloads the package. Subsequent loads reuse the local download cache; keep the model instance alive to avoid recompiling and initializing it for every request. Once downloaded, inference works offline. You can also load a local package with `SwevModel.load(from: modelURL)`.
+
+**Try it without creating an app:** clone this repository and run the [complete command-line example](Examples/README.md) on macOS:
+
+```sh
+swift run --package-path Examples/Decisions -c release Decisions \
+  danielamitay/gemma-4-e2b-it-lut4-g8-swev \
+  gemma-4-e2b-it-lut4-g8-swev-l4096-k16.mlpackage
+```
+
+The first run downloads about 2.44 GB. The example asks three text questions; append an image path to try vision instead.
 
 ## Three question types
 
@@ -121,7 +131,8 @@ Use any of the Gemma packages above for text alone or text plus one PNG/JPEG. Wi
 ```swift
 import Foundation
 
-let imageData = try Data(contentsOf: imageURL) // A local PNG
+let imageURL = URL(fileURLWithPath: "/path/to/photo.png")
+let imageData = try Data(contentsOf: imageURL)
 let response = try await model.predict(
     state: "Look at the attached image.",
     questions: [
@@ -138,10 +149,13 @@ For JPEG bytes, use `image/jpeg`. You can check `model.descriptor.capabilities.s
 
 ## Documentation
 
+- [Using Swev in an app](docs/usage.md) — structured state, typed answers, concurrency, and error handling.
 - [Loading and caching](docs/huggingface.md) — revisions, offline use, private repositories, and cache policies.
 - [Model support](docs/models.md) — capabilities, image processing, limits, and runtime behavior.
 - [Converting models](docs/conversion.md) — export, package, compress, and validate compatible models.
 - [Package schema](docs/schema.md) — versioned metadata, tokenizers, and inference contracts.
 - [Evaluation](docs/evaluation.md) — run labeled cases and source-parity checks against your own model.
+- [Runnable examples](Examples/README.md) — try text or image decisions from the command line.
+- [Contributing](CONTRIBUTING.md) — development setup, repository map, tests, and pull requests.
 
 Run `swift test` for the package tests. Model weights and generated reports stay outside Git. Swev is [MIT-licensed](LICENSE); model licenses are listed separately in their releases.
