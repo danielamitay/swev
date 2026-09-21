@@ -1,3 +1,5 @@
+> **MLX branch:** SmolVLM 500M now loads directly from an ordinary MLX repository with `SwevModel.load(hf: "mlx-community/SmolVLM-500M-Instruct-bf16")`. See the [MLX quickstart and prototype limits](docs/mlx.md). The remainder of this README documents the Core ML baseline retained for migration comparisons.
+
 ![Swev — typed decisions, locally in Swift with Core ML. State and questions become choices, scores, and probabilities.](docs/assets/swev-header.png)
 
 **Jev-style typed decisions, locally in Swift with Core ML.**
