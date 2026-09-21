@@ -18,7 +18,7 @@ Two explicit checkpoint formats use isolated Swift extensions: a bidirectional d
 ## Limits and errors
 
 - At most 64 questions per request and 26 options per question.
-- At most one PNG/JPEG image, with at most 32 MiB of encoded data. Check `descriptor.capabilities.supportsImages` before attaching one.
+- At most one PNG/JPEG image, with at most 32 MiB of encoded data, 8,192 pixels per side, and 16,777,216 total pixels. The declared content type must match the bytes. Check `descriptor.capabilities.supportsImages` before attaching one.
 - The context limit applies per question and includes chat framing and image tokens. Decision encoders can also impose smaller instruction/option budgets.
 - The default admission bound is eight requests, including the active request. Configure `maxPendingRequests:` from 1 through 64. Excess admission throws `queueFull`.
 

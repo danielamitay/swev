@@ -32,6 +32,6 @@ Choice probabilities are keyed by your option IDs. Score probabilities follow th
 
 Attach owned PNG/JPEG bytes through `images:`. Check `model.descriptor.capabilities.supportsImages` first. A text-only request skips vision processing. Multiple images, audio, and video are unsupported.
 
-There are at most 64 questions per request, 26 options per question, and one image of at most 32 MiB. Context includes formatting and image tokens and applies independently to each question. Overlong requests fail explicitly rather than losing input. See [model limits](models.md#limits-and-errors).
+There are at most 64 questions per request, 26 options per question, and one image of at most 32 MiB, 8,192 pixels per side, and 16,777,216 total pixels. The declared PNG/JPEG type must match the encoded bytes. Context includes formatting and image tokens and applies independently to each question. Overlong requests fail explicitly rather than losing input. See [model limits](models.md#limits-and-errors).
 
 Requests are serialized per model. `maxPendingRequests:` bounds admission, including the active request. Cancellation is cooperative between stages and prefill chunks; it cannot interrupt an active device operation. Keep inference work outside UI rendering callbacks and handle errors from the throwing API.

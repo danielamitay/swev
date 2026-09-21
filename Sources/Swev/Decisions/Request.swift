@@ -56,6 +56,7 @@ public enum Question: Sendable {
 }
 
 /// Owned encoded image bytes. Support and preprocessing are defined by the loaded model runtime.
+/// PNG/JPEG inputs are limited to 32 MiB, 8,192 pixels per side, and 16,777,216 total pixels.
 public struct ImageInput: Sendable {
     public let data: Data
     /// The encoded format: `image/png` or `image/jpeg`. It must match the bytes.

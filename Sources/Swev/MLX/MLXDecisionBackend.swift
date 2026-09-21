@@ -1,4 +1,3 @@
-import CoreImage
 import Foundation
 import HuggingFace
 import MLX
@@ -126,12 +125,7 @@ final class MLXDecisionBackend: DecisionRuntime {
         return try await container.perform { context in
             try Task.checkCancellation()
             let images: [UserInput.Image] = try request.images.map { image in
-                guard image.data.count <= 32 * 1024 * 1024 else { throw SwevError.resourceLimit }
-                guard ["image/png", "image/jpeg"].contains(image.contentType),
-                      let decoded = CIImage(data: image.data, options: [.applyOrientationProperty: true]) else {
-                    throw SwevError.invalidRequest("Invalid PNG/JPEG image")
-                }
-                return .ciImage(decoded)
+                .ciImage(try ImageValidation.image(image))
             }
             var answers: [Answer] = []
             var inputTokens = 0
