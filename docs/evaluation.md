@@ -56,7 +56,7 @@ python3 scripts/evaluate.py --model /path/to/prepared.mlpackage \
 
 The driver uses CPU-only Core ML and native tokenization. It accepts a text-only
 decision API subset, preserves object order, rejects duplicate keys, and checks any
-supplied model ID. Score wire requests allow 2–10 levels, further limited by the
+supplied model ID. Score wire requests allow 2–32 levels, further limited by the
 asset. Images and remote URLs are not fetched. Hosted API parity, extended wire
 metadata, and legacy rounded answers are outside this codec's scope.
 
