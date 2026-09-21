@@ -4,9 +4,16 @@ import Swev
 @main struct Runner {
     static func main() async throws {
         let args = CommandLine.arguments
-        guard args.count == 3 else {
-            throw SwevError.invalidRequest("Usage: SwevBenchmark MODEL_ID_OR_DIRECTORY CASES.jsonl")
+        guard [3, 5].contains(args.count) else {
+            throw SwevError.invalidRequest("Usage: SwevBenchmark MODEL_ID_OR_DIRECTORY CASES.jsonl [--max-context-tokens N]")
         }
+        let contextLimit: Int?
+        if args.count == 5 {
+            guard args[3] == "--max-context-tokens", let value = Int(args[4]), value > 0 else {
+                throw SwevError.invalidRequest("--max-context-tokens requires a positive integer")
+            }
+            contextLimit = value
+        } else { contextLimit = nil }
         let clock = ContinuousClock()
         func elapsed(_ start: ContinuousClock.Instant) -> Double {
             let c = start.duration(to: clock.now).components
@@ -19,9 +26,9 @@ import Swev
         let location = URL(fileURLWithPath: args[1])
         let model: SwevModel
         if FileManager.default.fileExists(atPath: location.path) || args[1].hasPrefix("/") || args[1].hasPrefix(".") {
-            model = try await SwevModel.load(url: location)
+            model = try await SwevModel.load(url: location, maxContextTokens: contextLimit)
         } else {
-            model = try await SwevModel.load(hf: args[1])
+            model = try await SwevModel.load(hf: args[1], maxContextTokens: contextLimit)
         }
         try emit(["phase": "loaded", "model": model.descriptor.id, "load_seconds": elapsed(start)])
         let rows = try String(contentsOfFile: args[2], encoding: .utf8).split(separator: "\n")

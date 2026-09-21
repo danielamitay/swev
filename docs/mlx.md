@@ -48,7 +48,7 @@ Structured state, `score`, `noul`, response probabilities, and metadata retain t
 
 ## Execution and limits
 
-Swev formats one deterministic prompt per question, then continues the runtime's assistant prefix with ` Answer: `. Each question gets a fresh KV cache and one logical prefill. Swev reads only the candidate logits and normalizes them; it never generates an answer or parses generated JSON. The tokenizer must encode every answer label as one distinct token.
+Swev formats one deterministic prompt per question, then continues the runtime's assistant prefix with ` Answer: `. For tokenizers with channel-based chat control tokens, it first completes an open assistant header with the final channel; an unexpected channel header fails explicitly. This selection uses tokenizer capabilities, not model names. The channel path has template/unit validation; full-model accuracy validation is still pending. Each question gets a fresh KV cache and one logical prefill. Swev reads only the candidate logits and normalizes them; it never generates an answer or parses generated JSON. The tokenizer must encode every answer label as one distinct token.
 
 The current decision layer allows 26 options, 64 questions per request, and one PNG/JPEG image of at most 32 MiB. Requests are serialized; the default admission bound is eight pending requests, configurable with `maxPendingRequests:`. Excess requests fail with `queueFull`. Cancellation is checked between processing stages; it cannot interrupt a device operation already running.
 
@@ -64,7 +64,9 @@ Swev inspects `config.json` before downloading weights and selects the VLM or la
 
 `mlx-swift-lm` 3.31.4 routes some checkpoints' declared `Idefics3Processor` to a processor that omits chat framing and uses the wrong image dimensions. The isolated `ProcessorCompatibility` shim selects **MLX's existing SmolVLM processor** when the declared processor settings include `max_image_size`. It merges split processor files, preserves the declared `image_seq_len`, and rejects conflicting counts. The registry is scoped to each load; no checkpoint files or global runtime registrations are modified. Image-only assets receive the runtime's required video defaults, but video requests remain unsupported.
 
-Swev does not implement resizing, normalization, tiling, or vision encoding. This shim should move upstream before declaring broad model support; only the 500M checkpoint has completed accuracy validation here.
+A separate tokenizer compatibility loader preserves the upstream template-file precedence and converts complete `role.capitalize()` expressions to the equivalent `capitalize` filter, which the pinned Swift template engine supports. It leaves the checkpoint unchanged and delegates rendering and tokenization to the runtime. Source-engine comparisons confirm identical text and image prompt rendering for the affected template.
+
+Swev does not implement resizing, normalization, tiling, or vision encoding. This shim should move upstream before declaring broad model support; the 256M, 500M, and 2.2B checkpoints have completed text/image fixture runs, but only 500M has completed the public JevBench comparison.
 
 Custom decision-head checkpoints without a supported causal/VLM configuration require a dedicated backend. Likewise, custom weight transforms require a matching runtime implementation. The loader fails explicitly for these assets; it does not guess from their filenames or use remote repository code.
 The stock Transformers checkpoint is not interchangeable with the MLX repository: this runtime expects the MLX convolution weight layout. Use an ordinary supported MLX repository, not a Swev export. No special model metadata or modified checkpoint is needed.
@@ -80,6 +82,8 @@ printf '%s\n' '{"state":"apple","questions":{"edible":{"type":"noul","instructio
   .local/mlx-build/Build/Products/Release/swev \
   --model mlx-community/SmolVLM-500M-Instruct-bf16
 ```
+
+Both the CLI and benchmark runner accept an optional trailing `--max-context-tokens N`, with the same bounds as the Swift loading API.
 
 If Xcode reports a missing Metal compiler, install it with `xcodebuild -downloadComponent MetalToolchain`. The macro validation flag enables the pinned upstream Hugging Face integration macros for a command-line build. The CLI currently accepts text requests; images use the Swift API.
 
