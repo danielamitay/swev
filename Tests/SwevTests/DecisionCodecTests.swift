@@ -31,4 +31,3 @@ import Testing
     let request = try DecisionCodec.decodeRequest(Data(json.utf8))
     #expect(request.questions[0].optionCount == 16)
 }
-

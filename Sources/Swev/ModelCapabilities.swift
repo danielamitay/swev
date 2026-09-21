@@ -12,4 +12,3 @@ public struct ModelCapabilities: Decodable, Sendable {
         public let maxSequenceTokens: Int
     }
 }
-

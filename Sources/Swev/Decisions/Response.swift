@@ -105,4 +105,3 @@ public struct DecisionResponse: Sendable {
         return answer
     }
 }
-
