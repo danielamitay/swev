@@ -103,6 +103,7 @@ These checkpoints were evaluated through the same Swev API on all **231 public J
 | [Muse Glimmer 30B](https://huggingface.co/mlx-community/Muse-Glimmer-30B-4bit) | 19.44 GB | INT4 | 3.67 s | 83.1% | Yes |
 | [GPT-OSS 20B](https://huggingface.co/mlx-community/gpt-oss-20b-MXFP4-Q8) | 12.10 GB | MXFP4 + INT8 | 743 ms | 72.7% | No |
 | [Gemma 3 12B IT](https://huggingface.co/mlx-community/gemma-3-12b-it-4bit) | 8.07 GB | INT4 | 2.28 s | 69.3% | Yes |
+| [Gemma 4 E2B IT](https://huggingface.co/mlx-community/gemma-4-e2b-it-4bit) | 3.58 GB | INT4 | 284 ms | 61.5% | Yes |
 | [Laya 421M](https://huggingface.co/aac6fef/laya-mlx) | 0.85 GB | FP16 | 23 ms† | 48.9%† | No |
 | [Qwen2-VL 2B](https://huggingface.co/mlx-community/Qwen2-VL-2B-mlx) | 4.43 GB | BF16 | 240 ms | 48.1% | Yes |
 | [SmolVLM 500M Instruct](https://huggingface.co/mlx-community/SmolVLM-500M-Instruct-bf16) | 1.02 GB | BF16 | 76 ms | 45.0% | Yes |
