@@ -7,13 +7,12 @@ import Testing
     ])
     let prompt = try DecisionPrompt(state: .object([("item", "fruit")]), question: choice)
     #expect(prompt.labels == ["A", "B"])
-    #expect(prompt.text.contains("A: \"apple\"\nB: \"stone\""))
-    #expect(!prompt.text.contains("opaque-id"))
+    #expect(prompt.text.contains("A. opaque-id: apple\nB. stone"))
     #expect(prompt.text == (try DecisionPrompt(state: .object([("item", "fruit")]), question: choice)).text)
     let score = try DecisionPrompt(state: "x", question: .score(id: "s", instructions: "Rate", levels: ["low", "mid", "high"]))
-    #expect(score.text.contains("A: \"low\"\nB: \"mid\"\nC: \"high\""))
+    #expect(score.text.contains("A. low\nB. mid\nC. high"))
     let noul = try DecisionPrompt(state: "x", question: .noul(id: "n", instructions: "True?"))
-    #expect(noul.text.contains("A: \"false\"\nB: \"true\""))
+    #expect(noul.text.contains("A. No\nB. Yes"))
 }
 
 @Test func candidateLabelsRejectAmbiguousTokenization() throws {

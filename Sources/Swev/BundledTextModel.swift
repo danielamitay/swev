@@ -49,7 +49,7 @@ struct BundledTextModel: Decodable {
         var metadata = shared.merging(definition.metadata) { _, alternate in alternate }
         metadata.removeValue(forKey: "swev.text-model")
         let assets = try ModelAssets(model: textModel, metadata: metadata)
-        let root = try ModelDescriptor.read(metadata: shared)
+        let root = try CoreMLModelDescriptor.read(metadata: shared)
         guard assets.descriptor.contractVersion == root.contractVersion,
               assets.descriptor.execution.profile == "text-decision-v1",
               assets.descriptor.id == root.id,

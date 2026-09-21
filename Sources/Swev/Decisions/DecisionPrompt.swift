@@ -3,6 +3,7 @@ import Foundation
 /// A deterministic, model-independent question and its candidate-token mapping.
 /// Tokenization and chat framing belong to the runtime; application IDs never become labels.
 struct DecisionPrompt: Sendable {
+    static let answerPrefix = " Answer: "
     let text: String
     let labels: [String]
 
@@ -11,32 +12,24 @@ struct DecisionPrompt: Sendable {
             throw SwevError.tooManyOptions(limit: 26)
         }
         labels = (0..<question.optionCount).map { String(UnicodeScalar(65 + $0)!) }
-        let descriptions: [JSONValue]
-        switch question {
-        case .choice(_, _, let options):
-            descriptions = options.map { $0.description ?? .string($0.id) }
-        case .score(_, _, let levels):
-            descriptions = levels
-        case .noul(_, _, let falseDescription, let trueDescription):
-            descriptions = [falseDescription ?? .string("false"), trueDescription ?? .string("true")]
+        func text(_ value: JSONValue) throws -> String {
+            if case .string(let string) = value { return string }
+            return try value.jsonString()
         }
-        let options = try zip(labels, descriptions).map { label, description in
-            "\(label): \(try description.jsonString())"
-        }.joined(separator: "\n")
-        text = """
-        Make one decision using the supplied state and any attached images.
-        Select the best answer to the question from the options below.
-        Reply with only its uppercase letter, without explanation or punctuation.
+        let options: [String]
+        switch question {
+        case .choice(_, _, let candidates):
+            options = try candidates.map { option in
+                try option.id + (option.description.map { ": " + (try text($0)) } ?? "")
+            }
+        case .score(_, _, let levels): options = try levels.map(text)
+        case .noul(_, _, let no, let yes):
+            options = [try no.map(text) ?? "No", try yes.map(text) ?? "Yes"]
+        }
+        self.text = "Choose the best answer to the question using the state below. Reply with only the answer letter.\n\nState: "
+            + (try text(state)) + "\n\nQuestion: " + (try text(question.instructions)) + "\n\nAnswers:\n"
+            + zip(labels, options).map { "\($0). \($1)\n" }.joined() + "\nAnswer:"
 
-        State:
-        \(try state.jsonString())
-
-        Question:
-        \(try question.instructions.jsonString())
-
-        Options (in order):
-        \(options)
-        """
     }
 
     /// Reject unsupported tokenizers instead of silently comparing partial or duplicate labels.

@@ -20,7 +20,7 @@ struct ModelAssets {
     struct Asset: Decodable { let key: String; let bytes: Int; let sha256: String }
     struct Feature: Codable, Equatable { let shape: [Int]; let dtype: String; var enumeratedShapes: [[Int]]? = nil }
     struct Signatures: Codable, Equatable { let inputs: [String: Feature]; let outputs: [String: Feature] }
-    let descriptor: ModelDescriptor
+    let descriptor: CoreMLModelDescriptor
     let adapter: TextAdapter
     let tensors: String
     let sequenceBuckets: [Int]
@@ -39,7 +39,7 @@ struct ModelAssets {
             do { return try JSONDecoder().decode(T.self, from: Data(text.utf8)) }
             catch { throw SwevError.invalidMetadata }
         }
-        descriptor = try ModelDescriptor.read(metadata: metadata)
+        descriptor = try CoreMLModelDescriptor.read(metadata: metadata)
         guard ["text-decision-v1", "vision-decision-v1", "routed-vision-decision-v1"].contains(descriptor.execution.profile) else { throw SwevError.unsupportedProfile(descriptor.execution.profile) }
         let pre = try read("swev.preprocessing", Preprocessing.self)
         guard descriptor.execution.inputAdapter == "text-recipe-v1", ["masked-options", "causal-pointer", "causal-labels"].contains(pre.tensors) else { throw SwevError.unsupportedProfile(descriptor.execution.inputAdapter) }

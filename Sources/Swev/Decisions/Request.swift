@@ -55,7 +55,7 @@ public enum Question: Sendable {
     }
 }
 
-/// Owned encoded image bytes. Support and preprocessing are defined by the model package.
+/// Owned encoded image bytes. Support and preprocessing are defined by the loaded model runtime.
 public struct ImageInput: Sendable {
     public let data: Data
     /// The encoded format: `image/png` or `image/jpeg`. It must match the bytes.

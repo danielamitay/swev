@@ -56,10 +56,10 @@ import Testing
 }
 
 @Test func metadataErrorsAreExplicit() throws {
-    #expect(throws: SwevError.missingMetadata(key: "swev.config")) { try ModelDescriptor.read(metadata: [:]) }
-    #expect(throws: SwevError.invalidMetadata) { try ModelDescriptor.read(metadata: ["swev.config": "{}"] ) }
+    #expect(throws: SwevError.missingMetadata(key: "swev.config")) { try CoreMLModelDescriptor.read(metadata: [:]) }
+    #expect(throws: SwevError.invalidMetadata) { try CoreMLModelDescriptor.read(metadata: ["swev.config": "{}"] ) }
     let json = #"{"contractVersion":"99.0","modelVersion":"1","id":"test","architecture":"test","capabilities":{"modalities":["text"],"questionTypes":["noul"],"limits":{"maxQuestionsPerRequest":1,"maxOptionsPerQuestion":2,"maxSequenceTokens":32}},"execution":{"profile":"unknown","inputAdapter":"unknown"}}"#
-    #expect(throws: SwevError.unsupportedContractVersion("99.0")) { try ModelDescriptor.read(metadata: ["swev.config": json]) }
+    #expect(throws: SwevError.unsupportedContractVersion("99.0")) { try CoreMLModelDescriptor.read(metadata: ["swev.config": json]) }
 }
 
 @Test func invalidModelURL() async {
@@ -71,7 +71,7 @@ import Testing
 @Test func futureSchemaIsRejectedBeforeDecodingItsBody() {
     for version in ["1.1", "99.0", "future"] {
         #expect(throws: SwevError.unsupportedContractVersion(version)) {
-            try ModelDescriptor.read(metadata: ["swev.config": "{\"contractVersion\":\"\(version)\",\"futureField\":true}"])
+            try CoreMLModelDescriptor.read(metadata: ["swev.config": "{\"contractVersion\":\"\(version)\",\"futureField\":true}"])
         }
     }
 }
