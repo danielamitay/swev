@@ -96,8 +96,9 @@ of correctness. Caller metadata is echoed without entering the prompt.
 Inference is serialized per model, off the main actor. Admission defaults to eight
 requests total, including the active request. Cancellation is checked between stages; an active device call
 must finish before cancellation returns. Temporary compiled assets live with the
-model instance. CPU-only execution is validated locally; other compute units and
-iOS devices need their own validation. Tokenizer hashes detect corruption, not
+model instance. CPU-only and CPU+GPU execution have separate [compatibility checks](performance.md);
+support depends on the export. In particular, the current Gemma FP32 GPU text route
+aborts inside Metal. iOS devices need their own validation. Tokenizer hashes detect corruption, not
 whether a model source is trustworthy.
 
 ## Image inputs

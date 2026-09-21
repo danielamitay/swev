@@ -5,19 +5,21 @@ import Swev
 @main
 struct Decisions {
     static func main() async {
-        let arguments = Array(CommandLine.arguments.dropFirst())
+        var arguments = Array(CommandLine.arguments.dropFirst())
+        let cpuOnly = arguments.first == "--cpu-only"
+        if cpuOnly { arguments.removeFirst() }
         if arguments == ["--help"] {
-            print("Usage: Decisions OWNER/REPO MODEL.mlpackage [IMAGE.png|IMAGE.jpg]")
+            print("Usage: Decisions [--cpu-only] OWNER/REPO MODEL.mlpackage [IMAGE.png|IMAGE.jpg]")
             return
         }
         do {
             guard (2...3).contains(arguments.count) else {
-                throw SwevError.invalidRequest("Usage: Decisions OWNER/REPO MODEL.mlpackage [IMAGE.png|IMAGE.jpg]")
+                throw SwevError.invalidRequest("Usage: Decisions [--cpu-only] OWNER/REPO MODEL.mlpackage [IMAGE.png|IMAGE.jpg]")
             }
             FileHandle.standardError.write(Data("Loading model; the first run downloads the package before Core ML compilation.\n".utf8))
             let model = try await SwevModel.load(
                 from: HuggingFaceModel(repository: arguments[0], package: arguments[1]),
-                configuration: .init(computeUnits: .cpuOnly)
+                configuration: .init(computeUnits: cpuOnly ? .cpuOnly : .cpuAndGPU)
             )
             let response: DecisionResponse
             if arguments.count == 3 {

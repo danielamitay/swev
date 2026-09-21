@@ -34,7 +34,7 @@ let model = try await SwevModel.load(
         repository: "danielamitay/gemma-4-e2b-it-lut4-g8-swev",
         package: "gemma-4-e2b-it-lut4-g8-swev-l4096-k16.mlpackage"
     ),
-    configuration: .init(computeUnits: .cpuOnly)
+    configuration: .init(computeUnits: .cpuAndGPU)
 )
 
 let response = try await model.predict(
@@ -99,7 +99,7 @@ State and instructions accept strings or structured `JSONValue` data. Questions 
 
 Browse the [Swev collection on Hugging Face](https://huggingface.co/collections/danielamitay/swev-6ab07cfe05f6ef97171a04e4). These exports bundle everything Swev needs. To switch models, change the repository and package name in the quickstart. Each repository contains `<repository-name>-l4096-k16.mlpackage`.
 
-| Model | Size (disk) | Precision | Latency (mean) | JevBench accuracy | Vision? |
+| Model | Size (disk) | Precision | CPU latency (mean) | JevBench accuracy | Vision? |
 | --- | ---: | --- | ---: | ---: | :---: |
 | [Gemma 4 E2B IT · FP32](https://huggingface.co/danielamitay/gemma-4-e2b-it-fp32-swev) | 19.16 GB | FP32 | 2.76 s | 63.2% | Yes |
 | [Gemma 4 E2B IT · LUT4](https://huggingface.co/danielamitay/gemma-4-e2b-it-lut4-g8-swev) | 2.44 GB | 4-bit palette, group 8 | 6.66 s | 65.4% | Yes |
@@ -109,6 +109,8 @@ Browse the [Swev collection on Hugging Face](https://huggingface.co/collections/
 | [Kev 0.6B](https://huggingface.co/danielamitay/kev-0.6b-fp32-swev) | 2.40 GB | FP32 | 2.24 s | 60.6% | No |
 | [Kev 4B](https://huggingface.co/danielamitay/kev-4b-fp32-swev) | 16.11 GB | FP32 | 12.14 s | 66.7% | No |
 | [Laya EN](https://huggingface.co/danielamitay/laya-en-fp32-swev) | 1.69 GB | FP32 | 1.56 s | 55.8% | No |
+
+**Compute policy:** the quickstart uses CPU+GPU. Use `.cpuOnly` for Gemma FP32 (Metal crash) and Kev 4B (no meaningful speedup and excessive memory at the largest GPU context). See [compute policy and measured latency](docs/performance.md) before switching packages.
 
 SmolVLM requires the tokenizer support in Swev commit [`4213de1`](https://github.com/danielamitay/swev/commit/4213de175031723f43b500820af1ad48db6baab4) or later. Use the latest `main` when loading it.
 
@@ -121,7 +123,7 @@ All models were tested against **231 public JevBench cases**. SmolVLM answered 2
 
 Accuracy is correct answers divided by all [231 public cases](https://github.com/fstandhartinger/jevbench/tree/275763201a29d6083d4ee1431d709c296ef81281). These are text-only public-subset results, not the official 534-case leaderboard, and do not measure vision quality.
 
-Latency is one serial pass on an Apple M4 Max with 128 GiB RAM, using Swift/Core ML CPU-only. It includes tokenization and inference, excludes model loading and per-bucket warmup, and groups requests by context size. Cold loads and switching context buckets can add latency. Other compute units and iOS devices need their own validation.
+Latency is one serial pass on an Apple M4 Max with 128 GiB RAM, using Swift/Core ML CPU-only. It includes tokenization and inference, excludes model loading and per-bucket warmup, and groups requests by context size. Cold loads and switching context buckets can add latency. For a separate CPU/GPU comparison and compatibility notes, see [compute policy](docs/performance.md). iOS devices need their own validation.
 
 Sizes are decimal GB on disk, not runtime memory requirements. Palette exports compress weights while retaining FP32 computation; they do not use NVFP4/NVFP8 arithmetic. These models are Apache 2.0; source checkpoints and conversion details are linked in their model cards.
 

@@ -10,7 +10,7 @@ swift run --package-path Examples/Decisions -c release Decisions \
   gemma-4-e2b-it-lut4-g8-swev-l4096-k16.mlpackage
 ```
 
-The first run downloads about 2.44 GB. Later runs reuse the downloaded package, but each new process still compiles/loads Core ML. The example uses CPU-only execution and prints a JSON response. The model chooses the answers; output is not hard-coded.
+The first run downloads about 2.44 GB. Later runs reuse the downloaded package, but each new process still compiles/loads Core ML. The example uses CPU+GPU execution and prints a JSON response. The model chooses the answers; output is not hard-coded.
 
 Append a PNG/JPEG path to ask about an image instead:
 
@@ -20,6 +20,8 @@ swift run --package-path Examples/Decisions -c release Decisions \
   gemma-4-e2b-it-lut4-g8-swev-l4096-k16.mlpackage \
   /path/to/photo.jpg
 ```
+
+For Gemma FP32 or Kev 4B, add `--cpu-only` immediately after `Decisions`. Gemma FP32 crashes on GPU; Kev 4B has no meaningful speedup and excessive memory use at its largest GPU context. See [compute policy](../docs/performance.md) for tested configurations.
 
 Replace the first two arguments with any [compatible model](../README.md#models). Text-only packages cannot accept the image argument. Edit the questions and state in the example source to try your own task.
 

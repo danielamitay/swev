@@ -33,7 +33,7 @@ A model serializes inference off the main actor. The default admission limit is 
 
 Cancellation is checked between preprocessing, Core ML prediction, and questions. A device call already in progress finishes before cancellation is observed. A cancelled or failed request returns no partial response.
 
-The default compute policy allows all Core ML devices. The examples select `.cpuOnly`, which is the locally validated configuration. Device compatibility, memory requirements, and latency depend on the package and compute policy.
+The default compute policy allows all Core ML devices. The examples select `.cpuAndGPU` for faster inference on tested packages. Use `.cpuOnly` for Gemma FP32, whose GPU text route aborts inside Metal, and Kev 4B, whose largest GPU context caused severe memory pressure without a short-request speed benefit. See [compute policy](performance.md) for measurements and compatibility. Device compatibility, memory requirements, and latency depend on the package and compute policy.
 
 ## Handling errors
 
