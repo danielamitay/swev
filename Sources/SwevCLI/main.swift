@@ -18,12 +18,7 @@ struct SwevCLI {
             } else { contextLimit = nil }
             let model: SwevModel
             let location = URL(fileURLWithPath: arguments[1])
-            if ["mlpackage", "mlmodel", "mlmodelc"].contains(location.pathExtension) {
-                guard contextLimit == nil else {
-                    throw SwevError.invalidRequest("--max-context-tokens applies to MLX models only")
-                }
-                model = try await SwevModel.load(from: location, configuration: .init(computeUnits: .cpuOnly))
-            } else if FileManager.default.fileExists(atPath: location.path) || arguments[1].hasPrefix("/") || arguments[1].hasPrefix(".") {
+            if FileManager.default.fileExists(atPath: location.path) || arguments[1].hasPrefix("/") || arguments[1].hasPrefix(".") {
                 model = try await SwevModel.load(url: location, maxContextTokens: contextLimit)
             } else {
                 model = try await SwevModel.load(hf: arguments[1], maxContextTokens: contextLimit)

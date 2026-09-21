@@ -97,20 +97,35 @@ def load_cases(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", required=True, type=Path)
+    parser.add_argument("--model", required=True, help="Hugging Face owner/name or local model directory")
+    parser.add_argument("--max-context-tokens", type=int)
     parser.add_argument("--cases", type=Path, default=Path(__file__).resolve().parents[1] / "fixtures/text-cases.json")
     parser.add_argument("--min-accuracy", type=float, default=1.0)
     parser.add_argument("--timeout", type=float, default=300)
     parser.add_argument("--driver", nargs=argparse.REMAINDER, required=True,
-                        help="Command receiving --model PATH; reads and writes one JSON object per line")
+                        help="Command receiving --model LOCATION; reads and writes one JSON object per line")
     args = parser.parse_args()
     try:
-        if not args.model.exists() or not args.driver:
-            raise ValueError("Model path and driver must exist")
+        if not args.driver:
+            raise ValueError("A driver command is required")
+        location = Path(args.model).expanduser()
+        if location.is_dir():
+            model = str(location.resolve())
+        elif not args.model.startswith(("/", ".", "~")) and len(args.model.split("/")) == 2 and all(
+            part and part not in (".", "..") for part in args.model.split("/")
+        ):
+            model = args.model
+        else:
+            raise ValueError("Model must be a local directory or Hugging Face owner/name")
+        if args.max_context_tokens is not None and args.max_context_tokens <= 0:
+            raise ValueError("Context limit must be positive")
         if not math.isfinite(args.min_accuracy) or not 0 <= args.min_accuracy <= 1 or not math.isfinite(args.timeout) or args.timeout <= 0:
             raise ValueError("Invalid accuracy or timeout")
         cases = load_cases(args.cases)
-        result = subprocess.run([*args.driver, "--model", str(args.model.resolve())],
+        command = [*args.driver, "--model", model]
+        if args.max_context_tokens is not None:
+            command += ["--max-context-tokens", str(args.max_context_tokens)]
+        result = subprocess.run(command,
                                 input="".join(json.dumps(c["request"], ensure_ascii=False) + "\n" for c in cases),
                                 text=True, capture_output=True, timeout=args.timeout, check=True)
         lines = result.stdout.splitlines()

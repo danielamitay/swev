@@ -8,18 +8,14 @@ public struct ModelDescriptor: Sendable {
 }
 
 /// A resident decision model. Keep it loaded across predictions to avoid repeated initialization.
-/// On the `mlx` branch, `load(hf:)` and `load(url:)` use MLX; legacy loading remains for comparison tests.
+/// Loads ordinary supported MLX models from the Hub or a local directory.
 public final class SwevModel: Sendable {
     public let descriptor: ModelDescriptor
-    private enum Backend: Sendable {
-        case mlx(any DecisionRuntime)
-        case coreML(CoreMLDecisionBackend)
-    }
-    private let backend: Backend
+    private let runtime: any DecisionRuntime
     private let admission: RequestAdmission
 
-    private init(backend: Backend, descriptor: ModelDescriptor, maxPendingRequests: Int) {
-        self.backend = backend
+    private init(runtime: any DecisionRuntime, descriptor: ModelDescriptor, maxPendingRequests: Int) {
+        self.runtime = runtime
         self.descriptor = descriptor
         admission = RequestAdmission(limit: maxPendingRequests)
     }
@@ -46,20 +42,11 @@ public final class SwevModel: Sendable {
     }
 
     private static func loaded(_ runtime: any DecisionRuntime, maxPendingRequests: Int) -> SwevModel {
-        .init(backend: .mlx(runtime), descriptor: .init(id: runtime.id, revision: runtime.revision,
+        .init(runtime: runtime, descriptor: .init(id: runtime.id, revision: runtime.revision,
             capabilities: .init(modalities: runtime.supportsImages ? ["text", "image"] : ["text"],
                 questionTypes: QuestionType.allCases, limits: .init(maxQuestionsPerRequest: 64,
                     maxOptionsPerQuestion: 26, maxSequenceTokens: runtime.maxContextTokens))),
             maxPendingRequests: maxPendingRequests)
-    }
-
-    /// Legacy Core ML loading retained temporarily for migration comparisons.
-    public static func load(from url: URL, configuration: RuntimeConfiguration = .init()) async throws -> SwevModel {
-        let runtime = try await CoreMLDecisionBackend.load(from: url, configuration: configuration)
-        let info = runtime.descriptor
-        return .init(backend: .coreML(runtime), descriptor: .init(id: info.id,
-            revision: info.revision ?? info.modelVersion, capabilities: info.capabilities),
-            maxPendingRequests: configuration.maxPendingRequests)
     }
 
     /// Evaluates independent questions, preserving their order and application option IDs.
@@ -69,10 +56,7 @@ public final class SwevModel: Sendable {
         try admission.acquire()
         defer { admission.release() }
         guard request.questions.count <= descriptor.capabilities.limits.maxQuestionsPerRequest else { throw SwevError.resourceLimit }
-        switch backend {
-        case .mlx(let runtime): return try await runtime.predict(request)
-        case .coreML(let runtime): return try await runtime.predict(request)
-        }
+        return try await runtime.predict(request)
     }
 
     /// Convenience form of `predict(_:)`, including optional image bytes and echoed metadata.
