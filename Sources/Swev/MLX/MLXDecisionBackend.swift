@@ -44,12 +44,19 @@ final class MLXDecisionBackend: Sendable {
                              local: Bool, contextLimit: Int?) async throws -> MLXDecisionBackend {
         try Task.checkCancellation()
         let directory: URL
+        let weightConfiguration: ModelConfiguration
         switch configuration.id {
-        case .directory(let url): directory = url
+        case .directory(let url):
+            directory = url
+            weightConfiguration = configuration
         case .id(let modelID, let modelRevision):
             // Inspect metadata first so unsupported architectures never trigger weight downloads.
             directory = try await #hubDownloader().download(id: modelID, revision: modelRevision,
                 matching: ["config.json"], useLatest: false, progressHandler: { _ in })
+            // Bind subsequent downloads to the inspected snapshot if the downloader exposes it.
+            let snapshot = directory.lastPathComponent
+            weightConfiguration = snapshot.count == 40 && snapshot.allSatisfy(\.isHexDigit)
+                ? .init(id: modelID, revision: snapshot) : configuration
         }
         let configURL = directory.appendingPathComponent("config.json")
         guard FileManager.default.fileExists(atPath: configURL.path) else {
@@ -61,7 +68,7 @@ final class MLXDecisionBackend: Sendable {
         guard useVision || useLanguage else {
             throw SwevError.invalidRequest("Unsupported model_type: \(inspection.modelType). A matching runtime implementation is required")
         }
-        let resolved = try await resolve(configuration: configuration, from: #hubDownloader(),
+        let resolved = try await resolve(configuration: weightConfiguration, from: #hubDownloader(),
             useLatest: false, progressHandler: { _ in })
         let container: ModelContainer
         if useVision {
