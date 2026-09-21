@@ -20,6 +20,7 @@ let package = Package(
             .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
             .product(name: "HuggingFace", package: "swift-huggingface"),
             .product(name: "Tokenizers", package: "swift-transformers"),
+            .product(name: "Hub", package: "swift-transformers"),
         ]),
         .executableTarget(name: "SwevCLI", dependencies: ["Swev"]),
         .testTarget(name: "SwevTests", dependencies: ["Swev"]),

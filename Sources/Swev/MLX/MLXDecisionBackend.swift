@@ -74,10 +74,10 @@ final class MLXDecisionBackend: Sendable {
         if useVision {
             let factory = try ProcessorCompatibility.factory(directory: resolved.modelDirectory)
             container = ModelContainer(context: try await factory._load(configuration: resolved,
-                tokenizerLoader: #huggingFaceTokenizerLoader()))
+                tokenizerLoader: TokenizerCompatibility()))
         } else {
             container = ModelContainer(context: try await LLMModelFactory.shared._load(configuration: resolved,
-                tokenizerLoader: #huggingFaceTokenizerLoader()))
+                tokenizerLoader: TokenizerCompatibility()))
         }
         let vision = await container.perform { context in context.model is any VLMModel }
         try Task.checkCancellation()
